@@ -9,6 +9,7 @@ from collections import defaultdict
 import datetime
 import plistlib # For Info.plist
 import shutil # For copying parts of the android script logic for adaptation
+import fnmatch # For gitignore pattern matching
 
 # Imports for Xcode settings analysis
 import sys # sys is used by one of the handlers in analyze_xcode_settings logging
@@ -78,8 +79,8 @@ try:
 except Exception:
      OUTPUT_BASE_DIR = pathlib.Path.home() / "Documents" / "snapshot_reports"
 
-TREE_MAX_DEPTH = 10
-TREE_INDENT_CHAR = "    "
+TREE_MAX_DEPTH = CONFIG.get("tree_max_depth", 10)
+TREE_INDENT_CHAR = CONFIG.get("tree_indent_char", "    ")
 
 # --- Android Specific Settings (adapted from your original script) ---
 ANDROID_EXCLUDES = [
@@ -103,6 +104,12 @@ ANDROID_RE_GRADLE_DEPENDENCY = re.compile(r"^\s*(implementation|api|compileOnly|
 ANDROID_RE_GRADLE_DEPENDENCY_LIBS = re.compile(r"^\s*(implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)\s*\(\s*libs\.([\w\.-]+)\s*\)", re.MULTILINE)
 ANDROID_RE_SETTINGS_GRADLE_ROOT_NAME = re.compile(r"^\s*rootProject\.name\s*=\s*\"([^\"]+)\"", re.MULTILINE)
 ANDROID_RE_SETTINGS_GRADLE_INCLUDE = re.compile(r"^\s*include\s*\"\":(.*?)\"\"", re.MULTILINE)
+
+ANDROID_RE_KOTLIN_CLASS = re.compile(r"^\s*(?:[a-z]+\s+)*(class|interface|object|enum class|sealed class|data class)\s+([A-Za-z_][A-Za-z0-9_]*)(?:.*)?\{?", re.MULTILINE)
+# Match function declarations including extension functions (fun Type.functionName)
+ANDROID_RE_KOTLIN_FUNCTION = re.compile(r"^\s*(?:@[\w\.]+\s+)*(?:[a-z]+\s+)*fun\s+(?:[A-Za-z_][A-Za-z0-9_<>\[\]\?]*\.)?([A-Za-z_][A-Za-z0-9_`]*)\s*\(", re.MULTILINE)
+ANDROID_RE_KOTLIN_PROPERTY = re.compile(r"^\s*(?:[a-z]+\s+)*(val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z0-9_<>\[\]\?]+)?\s*=", re.MULTILINE)
+
 
 
 # --- iOS Specific Settings ---
@@ -343,34 +350,61 @@ def generate_xcode_settings_report_markdown(project_ios_root_path_str):
 
 
 # --- 1. Generic Helper Functions ---
+
+def parse_ignore_patterns(ignore_file_path):
+    """Parses a .gitignore or .cursorignore file and returns a list of patterns."""
+    patterns = []
+    try:
+        with open(ignore_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if line and not line.startswith('#'):
+                    patterns.append(line)
+    except Exception:
+        pass  # If file doesn't exist or can't be read, return empty list
+    return patterns
+
 def is_excluded(path_str, project_root_str, current_excludes_list):
-    """Checks if a file/directory should be excluded based on the provided exclude list."""
+    """Checks if a file/directory should be excluded based on the provided exclude list.
+    
+    Supports gitignore-style patterns using fnmatch.
+    """
     try:
         path_obj_absolute = pathlib.Path(path_str)
         project_root_path_obj = pathlib.Path(project_root_str)
 
         try:
             relative_path_obj = path_obj_absolute.relative_to(project_root_path_obj)
+            relative_path_str = str(relative_path_obj)
         except ValueError: 
-            relative_path_obj = path_obj_absolute.name 
+            relative_path_obj = path_obj_absolute.name
+            relative_path_str = str(relative_path_obj)
 
         for exclude_pattern in current_excludes_list:
-            if exclude_pattern.endswith('/'): 
+            # Handle directory patterns (ending with /)
+            if exclude_pattern.endswith('/'):
                 normalized_exclude_dir = exclude_pattern.strip('/')
                 if relative_path_obj == normalized_exclude_dir or \
                    normalized_exclude_dir in pathlib.Path(relative_path_obj).parts or \
                    str(relative_path_obj).startswith(normalized_exclude_dir + os.sep):
                     return True
-            elif exclude_pattern.startswith('*.'): 
-                if path_obj_absolute.match(exclude_pattern):
+            # Use fnmatch for glob patterns (supports *, ?, [seq], etc.)
+            elif '*' in exclude_pattern or '?' in exclude_pattern or '[' in exclude_pattern:
+                # Match against relative path
+                if fnmatch.fnmatch(relative_path_str, exclude_pattern):
                     return True
-            else: 
+                # Also match against just the filename
+                if fnmatch.fnmatch(path_obj_absolute.name, exclude_pattern):
+                    return True
+            # Exact match
+            else:
                 if path_obj_absolute.name == exclude_pattern or \
                    (isinstance(relative_path_obj, pathlib.Path) and relative_path_obj.name == exclude_pattern) or \
                    exclude_pattern in str(relative_path_obj):
                     return True
     except Exception:
-        return False 
+        return False
     return False
 
 def generate_directory_tree(project_root_path, max_depth, indent_char, current_excludes_list, platform_name="Project"):
@@ -418,7 +452,7 @@ def generate_directory_tree(project_root_path, max_depth, indent_char, current_e
 
 # --- 2. Android Snapshot Logic (Adapted from your original script) ---
 
-def android_parse_java_groovy_file(file_path):
+def android_parse_code_file(file_path):
     content = []
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -428,9 +462,13 @@ def android_parse_java_groovy_file(file_path):
 
     current_comment_lines = []
     in_javadoc = False
+    
+    is_kotlin = file_path.suffix == '.kt'
 
     for line in lines:
         stripped_line = line.strip()
+        
+        # --- Comment Handling (Shared) ---
         if in_javadoc:
             if ANDROID_RE_JAVADOC_END.search(stripped_line):
                 in_javadoc = False
@@ -466,33 +504,78 @@ def android_parse_java_groovy_file(file_path):
             current_comment_lines.append(single_comment_match.group(1).strip())
             continue
 
-        class_match = ANDROID_RE_CLASS_INTERFACE.search(line)
-        if class_match:
-            entity_type = class_match.group(1)
-            entity_name = class_match.group(2).strip() 
-            if current_comment_lines:
-                content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
-                for comment_line in current_comment_lines:
-                    if comment_line: content.append(f"    - _{comment_line}_")
-            else:
-                content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
-            current_comment_lines = []
-            continue
+        # --- Parsing Logic ---
+        
+        if is_kotlin:
+             class_match = ANDROID_RE_KOTLIN_CLASS.search(line)
+             if class_match:
+                entity_type = class_match.group(1)
+                entity_name = class_match.group(2).strip()
+                if current_comment_lines:
+                    content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
+                    for comment_line in current_comment_lines:
+                        if comment_line: content.append(f"    - _{comment_line}_")
+                else:
+                    content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
+                current_comment_lines = []
+                continue
+                
+             func_match = ANDROID_RE_KOTLIN_FUNCTION.search(line)
+             if func_match:
+                func_name = func_match.group(1)
+                # Since we simplified the regex, we just show the function name
+                signature = f"{func_name}(...)"
+                if current_comment_lines:
+                    content.append(f"    - `Func: {signature}`")
+                    for comment_line in current_comment_lines:
+                         if comment_line: content.append(f"      - _{comment_line}_")
+                else:
+                    content.append(f"    - `Func: {signature}`")
+                current_comment_lines = []
+                continue
+             
+             # Match Kotlin properties (val/var)
+             property_match = ANDROID_RE_KOTLIN_PROPERTY.search(line)
+             if property_match:
+                property_type = property_match.group(1)  # val or var
+                property_name = property_match.group(2)
+                if current_comment_lines:
+                    content.append(f"    - `{property_type.capitalize()}: {property_name}`")
+                    for comment_line in current_comment_lines:
+                         if comment_line: content.append(f"      - _{comment_line}_")
+                else:
+                    content.append(f"    - `{property_type.capitalize()}: {property_name}`")
+                current_comment_lines = []
+                continue
 
-        method_match = ANDROID_RE_METHOD.search(line)
-        if method_match:
-            method_name = method_match.group(2)
-            params = method_match.group(3)
-            return_type = method_match.group(1)
-            signature = f"{return_type} {method_name}({params})" if return_type else f"{method_name}({params})"
-            if current_comment_lines:
-                content.append(f"    - `Method: {signature}`")
-                for comment_line in current_comment_lines:
-                     if comment_line: content.append(f"      - _{comment_line}_")
-            else:
-                content.append(f"    - `Method: {signature}`")
-            current_comment_lines = []
-            continue
+        else: # Java / Groovy
+            class_match = ANDROID_RE_CLASS_INTERFACE.search(line)
+            if class_match:
+                entity_type = class_match.group(1)
+                entity_name = class_match.group(2).strip() 
+                if current_comment_lines:
+                    content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
+                    for comment_line in current_comment_lines:
+                        if comment_line: content.append(f"    - _{comment_line}_")
+                else:
+                    content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
+                current_comment_lines = []
+                continue
+
+            method_match = ANDROID_RE_METHOD.search(line)
+            if method_match:
+                method_name = method_match.group(2)
+                params = method_match.group(3)
+                return_type = method_match.group(1)
+                signature = f"{return_type} {method_name}({params})" if return_type else f"{method_name}({params})"
+                if current_comment_lines:
+                    content.append(f"    - `Method: {signature}`")
+                    for comment_line in current_comment_lines:
+                         if comment_line: content.append(f"      - _{comment_line}_")
+                else:
+                    content.append(f"    - `Method: {signature}`")
+                current_comment_lines = []
+                continue
         
         if stripped_line:
             current_comment_lines = []
@@ -633,12 +716,27 @@ def snapshot_android_project(project_path_str, project_display_name, output_dir_
     print(f"\n--- 正在產生 Android 快照報告：{project_display_name} ---")
     print(f"專案根目錄：{project_root}")
 
+    # Load dynamic ignore patterns from target project
+    active_excludes = list(ANDROID_EXCLUDES)  # Start with defaults
+    gitignore_path = project_root / ".gitignore"
+    cursorignore_path = project_root / ".cursorignore"
+    
+    if gitignore_path.exists():
+        gitignore_patterns = parse_ignore_patterns(gitignore_path)
+        active_excludes.extend(gitignore_patterns)
+        print(f"  已載入 {len(gitignore_patterns)} 個 .gitignore 規則")
+    
+    if cursorignore_path.exists():
+        cursorignore_patterns = parse_ignore_patterns(cursorignore_path)
+        active_excludes.extend(cursorignore_patterns)
+        print(f"  已載入 {len(cursorignore_patterns)} 個 .cursorignore 規則")
+
     markdown_parts = []
     
     print("  正在產生目錄結構...")
-    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, ANDROID_EXCLUDES, "Android Project"))
+    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "Android Project"))
 
-    code_summary = ["## 主要 Java/Groovy 類別與方法"]
+    code_summary = ["## 主要 Java/Groovy/Kotlin 類別與方法"]
     xml_summary = ["## XML 資源摘要"]
     if not ANDROID_PARSE_XML_RESOURCES_DETAILS:
         xml_summary.append("_詳細 XML 資源解析已關閉。僅列出檔名。_\n")
@@ -648,13 +746,13 @@ def snapshot_android_project(project_path_str, project_display_name, output_dir_
     
     print("  正在掃描並解析檔案...")
     for item in project_root.rglob("*"):
-        if is_excluded(str(item), str(project_root), ANDROID_EXCLUDES): continue
+        if is_excluded(str(item), str(project_root), active_excludes): continue
         if item.is_file():
             rel_path = str(item.relative_to(project_root))
             if item.suffix in ['.java', '.groovy', '.kt']: 
                 counts["code"] += 1
                 code_summary.append(f"### 檔案: `{rel_path}`")
-                parsed = android_parse_java_groovy_file(item) 
+                parsed = android_parse_code_file(item) 
                 code_summary.extend(parsed if parsed else ["  - (無可擷取的內容)"])
                 code_summary.append("\n")
             elif item.name == "AndroidManifest.xml":
@@ -1002,10 +1100,25 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
     print(f"\n--- 正在產生 iOS 快照報告：{project_display_name} ---")
     print(f"專案根目錄：{project_root}")
     
+    # Load dynamic ignore patterns from target project
+    active_excludes = list(IOS_EXCLUDES)  # Start with defaults
+    gitignore_path = project_root / ".gitignore"
+    cursorignore_path = project_root / ".cursorignore"
+    
+    if gitignore_path.exists():
+        gitignore_patterns = parse_ignore_patterns(gitignore_path)
+        active_excludes.extend(gitignore_patterns)
+        print(f"  已載入 {len(gitignore_patterns)} 個 .gitignore 規則")
+    
+    if cursorignore_path.exists():
+        cursorignore_patterns = parse_ignore_patterns(cursorignore_path)
+        active_excludes.extend(cursorignore_patterns)
+        print(f"  已載入 {len(cursorignore_patterns)} 個 .cursorignore 規則")
+    
     markdown_parts = []
 
     print("  正在產生目錄結構...")
-    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, IOS_EXCLUDES, "iOS Project"))
+    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "iOS Project"))
 
     swift_summary = ["## 主要 Swift 類型與函式"]
     plist_content_md = "" # Changed name to avoid conflict
@@ -1013,7 +1126,7 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
 
     print("  正在掃描並解析檔案...")
     found_plist_path = None
-    possible_plist_locations = [p for p in project_root.rglob("Info.plist") if not is_excluded(str(p), str(project_root), IOS_EXCLUDES)]
+    possible_plist_locations = [p for p in project_root.rglob("Info.plist") if not is_excluded(str(p), str(project_root), active_excludes)]
     if possible_plist_locations:
         possible_plist_locations.sort(key=lambda p: (project_root.name not in str(p.parent), len(p.parts)))
         found_plist_path = possible_plist_locations[0]
@@ -1027,7 +1140,7 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
 
 
     for item in project_root.rglob("*"):
-        if is_excluded(str(item), str(project_root), IOS_EXCLUDES): continue
+        if is_excluded(str(item), str(project_root), active_excludes): continue
         if item.is_file():
             rel_path = str(item.relative_to(project_root))
             if item.suffix == '.swift':

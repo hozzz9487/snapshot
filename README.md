@@ -8,17 +8,30 @@
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A specialized utility designed to generate comprehensive technical snapshots of Android and iOS projects. It empowers developers and AI assistants to rapidly grasp project architectures, logic flows, dependencies, and build configurations.
+A specialized utility designed to "de-noise" and condense Android/iOS projects into optimized technical snapshots. It empowers developers and AI assistants to rapidly grasp project DNA—architectures, logic flows, and configurations—within a single, context-efficient report.
+
+---
+
+## 🎯 Why Snapshot?
+
+Modern AI models have context limits. Feeding raw source code often introduces "noise" (boilerplate, build artifacts, comments) that wastes tokens and confuses reasoning. 
+
+**Snapshot Tool** acts as a digital lens:
+- **Noise Reduction**: Strips away non-essential code while preserving structural logic.
+- **Context Optimization**: Merges hundreds of files into a single, structured Markdown report.
+- **AI-Ready**: Designed specifically for prompts in assistants like Claude, ChatGPT, and Cursor.
+
 
 ---
 
 ## 🚀 Features
 
 -   **Multi-Platform Analysis**: Full support for Android (Java/Kotlin, Gradle) and iOS (Swift, Xcode, CocoaPods, SPM).
--   **Security & Privacy**: Built-in isolation for sensitive data, paths, and secrets via `.gitignore`, `.cursorignore`, and external configs.
--   **Dependency Mapping**: Automatically parses and lists all third-party libraries from dependency managers.
--   **Xcode Settings Deep Dive**: Extracts and formats complex Xcode build settings and target configurations.
--   **Clean Visualizations**: Generates filtered directory trees and structured Markdown reports.
+-   **Security & Privacy**: Built-in isolation for sensitive data via `.gitignore` and `.cursorignore`.
+-   **Dependency Mapping**: Automatically extracts third-party libraries from dependency managers.
+-   **Xcode Settings Deep Dive**: Formats complex build settings into human/AI-readable tables.
+-   **Structured Documentation**: Generates filtered directory trees and condensed code summaries.
+
 
 ---
 

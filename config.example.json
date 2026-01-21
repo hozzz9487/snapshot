@@ -6,5 +6,7 @@
             "ios_path": "/path/to/ios/project"
         }
     },
-    "output_base_dir": "~/Documents/snapshot_reports"
+    "output_base_dir": "~/Documents/snapshot_reports",
+    "tree_max_depth": 10,
+    "tree_indent_char": "    "
 }

@@ -8,17 +8,30 @@
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-這是一款專為 Android 與 iOS 專案設計的技術快照工具，能自動生成詳盡的專案報告，幫助開發者或 AI 助手快速掌握專案架構、邏輯流程、相依套件及編譯配置。
+這是一款專為 Android 與 iOS 專案設計的「降噪」快照工具。它能將大型專案壓縮成優化的技術報告，幫助開發者或 AI 助手在無需逐一翻閱檔案的情況下，快速提取專案的核心 DNA——架構、邏輯流與配置資訊。
+
+---
+
+## 🎯 為什麼需要 Snapshot?
+
+現代 AI 模型（如 Claude, ChatGPT, Cursor）雖然強大，但仍受限於上下文視窗（Context Window）。直接餵入原始碼往往會包含過多「雜訊」（如樣板程式碼、編譯產物、過多註解），這不僅浪費 Token，也可能干擾 AI 的推理邏輯。
+
+**Snapshot Tool** 就像是一個專案的數位透視鏡：
+-   **核心降噪**：自動過濾非必要的輔助代碼，僅保留關鍵的結構與邏輯精華。
+-   **上下文優化**：將數百個分散檔案整合為單份、結構化的 Markdown 報告。
+-   **AI 深度協作**：生成報告格式特別優化，讓 AI 助手能更精準地理解您的開發脈絡。
+
 
 ---
 
 ## 🚀 功能亮點
 
--   **多平台分析**：全面支援 Android (Java/Kotlin, Gradle) 與 iOS (Swift, Xcode, CocoaPods, SPM)。
--   **隱私安全**：內建敏感資料隔離機制，透過 `.gitignore`、`.cursorignore` 與外部設定檔保護您的路徑與金鑰。
--   **相依套件清單**：自動解析並列出依賴管理工具中的所有第三方套件。
--   **Xcode 設定深度分析**：提取並格式化複雜的 Xcode 編譯設定與 Target 配置。
--   **清晰結構化報告**：生成過濾後的目錄樹狀圖與結構化的 Markdown 報告。
+-   **多平台深度分析**：全面支援 Android (Java/Kotlin, Gradle) 與 iOS (Swift, Xcode, CocoaPods, SPM)。
+-   **隱私安全隔離**：內建敏感資料隔離機制，透過 `.gitignore` 與 `.cursorignore` 保護開發環境。
+-   **自動化相依追蹤**：一鍵解析並列出所有第三方套件，免去手動統計。
+-   **Xcode 設定透視**：將複雜的編譯設定與 Target 配置轉換為 AI 易讀的表格格式。
+-   **精煉結構化文件**：產出過濾後的目錄樹圖與高度壓縮的代碼邏輯總結。
+
 
 ---
 
