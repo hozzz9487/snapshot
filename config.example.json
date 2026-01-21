@@ -1,0 +1,10 @@
+{
+    "projects": {
+        "example_project": {
+            "name": "Example Project Name",
+            "android_path": "/path/to/android/project",
+            "ios_path": "/path/to/ios/project"
+        }
+    },
+    "output_base_dir": "~/Documents/snapshot_reports"
+}

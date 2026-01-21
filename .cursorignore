@@ -1,0 +1,21 @@
+# Secrets and Environment Variables
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.asc
+*.gpg
+secrets.json
+client_secrets.json
+
+# Logs
+*.log
+xcode_analyzer_logs/
+
+# OS Files
+.DS_Store
+
+# Configuration
+config.json
