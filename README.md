@@ -1,87 +1,108 @@
-# Project Snapshot Tool
+# Project Snapshot Tool | 專案快照分析工具
 
-A powerful utility designed to generate comprehensive technical snapshots of Android and iOS projects. It helps developers and AI assistants quickly understand project structures, code logic, dependencies, and build configurations.
+[![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+A specialized utility designed to generate comprehensive technical snapshots of Android and iOS projects. It empowers developers and AI assistants to rapidly grasp project architectures, logic flows, dependencies, and build configurations.
 
-- **Multi-Platform Support**: Detailed analysis for both Android (Java, Kotlin, Gradle) and iOS (Swift, Xcode, CocoaPods, SPM).
-- **Security First**: Automatically isolates sensitive data, personal file paths, and secrets using `.gitignore`, `.cursorignore`, and external configuration files.
-- **Dependency Analysis**: Parses Gradle, CocoaPods, and Swift Package Manager files to list all third-party libraries.
-- **Xcode Settings Analysis**: Deep dive into Xcode build configurations and target settings.
-- **Directory Mapping**: Generates clean, filtered directory trees of your projects.
-- **Markdown Output**: Reports are generated in clean Markdown format for easy reading or sharing.
+這是一款專為 Android 與 iOS 專案設計的技術快照工具，能自動生成詳盡的專案報告，幫助開發者或 AI 助手快速掌握專案架構、邏輯流程、相依套件及編譯配置。
 
-## Prerequisites
+---
 
-- Python 3.x
-- macOS (recommended for iOS analysis)
+## 🚀 Features | 功能亮點
 
-## Installation
+-   **Multi-Platform Analysis**: Full support for Android (Java/Kotlin, Gradle) and iOS (Swift, Xcode, CocoaPods, SPM).
+    *   **多平台分析**：全面支援 Android (Java/Kotlin, Gradle) 與 iOS (Swift, Xcode, CocoaPods, SPM)。
+-   **Security & Privacy**: Built-in isolation for sensitive data, paths, and secrets via `.gitignore`, `.cursorignore`, and external configs.
+    *   **隱私安全**：內建敏感資料隔離機制，透過 `.gitignore`、`.cursorignore` 與外部設定檔保護您的路徑與金鑰。
+-   **Dependency Mapping**: Automatically parses and lists all third-party libraries from dependency managers.
+    *   **相依套件清單**：自動解析並列出依賴管理工具中的所有第三方套件。
+-   **Xcode Settings Deep Dive**: Extracts and formats complex Xcode build settings and target configurations.
+    *   **Xcode 設定深度分析**：提取並格式化複雜的 Xcode 編譯設定與 Target 配置。
+-   **Clean Visualizations**: Generates filtered directory trees and structured Markdown reports.
+    *   **清晰結構化報告**：生成過濾後的目錄樹狀圖與結構化的 Markdown 報告。
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/hozzz9487/snapshot.git
-   cd snapshot
-   ```
+---
 
-2. **Set up a virtual environment (optional but recommended)**:
-   ```bash
-   python3 -m venv .
-   source bin/activate
-   ```
+## 📦 Getting Started | 快速上手
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Prerequisites | 前置需求
+-   Python 3.8+
+-   macOS (Required for iOS Xcode analysis | iOS Xcode 分析需在 macOS 運行)
 
-## Configuration
+### Installation | 安裝步驟
+1.  **Clone the project | 複製專案**:
+    ```bash
+    git clone https://github.com/hozzz9487/snapshot.git
+    cd snapshot
+    ```
+2.  **Environment Setup | 環境設定**:
+    ```bash
+    # Setting up venv (Recommended) | 建立虛擬環境（建議）
+    python3 -m venv .
+    source bin/activate
+    # Install dependencies | 安裝必要套件
+    pip install -r requirements.txt
+    ```
 
-This tool uses an external configuration file to keep your local paths private.
+---
 
-1. **Create your config file**:
-   ```bash
-   cp config.example.json config.json
-   ```
+## ⚙️ Configuration | 專案配置
 
-2. **Edit `config.json`**:
-   Add your projects and define the output directory.
-   ```json
-   {
-       "projects": {
-           "MyMobileApp": {
-               "name": "My Mobile App Project",
-               "android_path": "~/Developer/Android/MyApp",
-               "ios_path": "~/Developer/iOS/MyApp"
-           }
-       },
-       "output_base_dir": "~/Documents/snapshot_reports"
-   }
-   ```
+To protect your privacy, project paths are kept in a local `config.json` file which is ignored by Git.
+為了保護隱私，專案路徑存放在本機的 `config.json` 中，此檔案不會被 Git 追蹤。
 
-## Usage
+1.  **Initialize config | 初始化設定**:
+    ```bash
+    cp config.example.json config.json
+    ```
+2.  **Configure projects | 編輯設定**:
+    Edit `config.json` to add your specific project paths:
+    ```json
+    {
+        "projects": {
+            "MyAwesomeApp": {
+                "name": "My Awesome App",
+                "android_path": "~/Developer/Android/MyApp",
+                "ios_path": "~/Developer/iOS/MyApp"
+            }
+        },
+        "output_base_dir": "~/Documents/snapshot_reports"
+    }
+    ```
 
-You can run the tool using the provided script or directly via Python:
+---
 
-### Using the script
+## 🛠 Usage | 使用方法
+
+Run the interactive tool via script or Python:
+您可以透過指令腳本或直接使用 Python 運行：
+
+### Option 1: Using the script (Recommended) | 方式一：使用腳本（建議）
 ```bash
 ./script/snapshot.command
 ```
 
-### Using Python directly
+### Option 2: Using Python directly | 方式二：直接運行 Python
 ```bash
 python3 py/snapshot.py
 ```
 
-Follow the interactive prompts to select the project and the platform you want to snapshot.
+Follow the prompts to select your project and platform. The reports will be saved to your defined `output_base_dir`.
+依照提示選擇專案與平台，報告將存儲於您設定的 `output_base_dir` 目錄中。
 
-## Project Structure
+---
 
-- `py/`: Core Python script logic.
-- `script/`: Shell scripts for easy execution.
-- `config.example.json`: Template for project configuration.
-- `.gitignore` / `.cursorignore`: Pre-configured to protect your privacy.
+## 📂 Project Structure | 專案架構
 
-## License
+-   `py/`: Core Python logic and analysis engines. (核心邏輯與分析引擎)
+-   `script/`: Helper scripts for convenience. (便捷運行腳本)
+-   `config.example.json`: Configuration template. (設定檔範本)
+-   `.gitignore` / `.cursorignore`: Pre-configured security filters. (預設的安全過濾配置)
 
-[MIT License](LICENSE) (or specify your license)
+---
+
+## 📄 License | 授權條款
+
+This project is licensed under the [MIT License](LICENSE).
+本專案採用 [MIT 授權條款](LICENSE)。
