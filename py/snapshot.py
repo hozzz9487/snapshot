@@ -79,7 +79,7 @@ try:
 except Exception:
      OUTPUT_BASE_DIR = pathlib.Path.home() / "Documents" / "snapshot_reports"
 
-TREE_MAX_DEPTH = CONFIG.get("tree_max_depth", 10)
+TREE_MAX_DEPTH = CONFIG.get("tree_max_depth", 20)
 TREE_INDENT_CHAR = CONFIG.get("tree_indent_char", "    ")
 
 # --- Android Specific Settings (adapted from your original script) ---
