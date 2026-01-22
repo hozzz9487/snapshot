@@ -27,8 +27,9 @@
 ## 🚀 功能亮點
 
 -   **多平台深度分析**：全面支援 Android (Java/Kotlin, Gradle) 與 iOS (Swift, Xcode, CocoaPods, SPM)。
+-   **互動式專案管理**：內建 CLI 管理介面，可直接新增、移除或修改專案設定，支援 macOS 原生 Finder 視窗選取路徑。
+-   **智慧路徑偵測**：自動掃描子目錄鎖定專案根目錄，並能根據 Android 路徑自動預測並關聯 iOS 專案位置（支援平行或子母結構）。
 -   **隱私安全隔離**：內建敏感資料隔離機制，透過 `.gitignore` 與 `.cursorignore` 保護開發環境。
--   **自動化相依追蹤**：一鍵解析並列出所有第三方套件，免去手動統計。
 -   **Xcode 設定透視**：將複雜的編譯設定與 Target 配置轉換為 AI 易讀的表格格式。
 -   **精煉結構化文件**：產出過濾後的目錄樹圖與高度壓縮的代碼邏輯總結。
 
@@ -39,7 +40,7 @@
 
 ### 前置需求
 -   Python 3.8+
--   macOS (iOS Xcode 分析功能需在 macOS 環境下執行)
+-   macOS (iOS Xcode 分析與 Finder 選取功能需在 macOS 環境下執行)
 
 ### 安裝步驟
 1.  **複製專案**:
@@ -58,28 +59,15 @@
 
 ---
 
-## ⚙️ 專案配置
+## ⚙️ 專案配置 (零設定上手)
 
-為了保護隱私，專案路徑存放在本機的 `config.json` 中，此檔案不會被 Git 追蹤。
+**您不再需要手動編輯設定檔！**
 
-1.  **初始化設定**:
-    ```bash
-    cp config.example.json config.json
-    ```
-2.  **編輯設定**:
-    編輯 `config.json` 加入您的專案路徑：
-    ```json
-    {
-        "projects": {
-            "MyAwesomeApp": {
-                "name": "My Awesome App",
-                "android_path": "~/Developer/Android/MyApp",
-                "ios_path": "~/Developer/iOS/MyApp"
-            }
-        },
-        "output_base_dir": "~/Documents/snapshot_reports"
-    }
-    ```
+初次執行工具時，若偵測不到 `config.json`，程式會自動進入**互動引導模式**，協助您設定第一個專案。
+
+當然，您仍然可以手動管理設定：
+-   設定檔位置：`config.json` (位於專案根目錄，由工具自動產生)
+-   敏感資訊：此檔案預設被 Git 忽略，保障隱私。
 
 ---
 
@@ -97,7 +85,13 @@
 python3 py/snapshot.py
 ```
 
-依照提示選擇專案與平台，報告將存儲於您設定的 `output_base_dir` 目錄中。
+### 操作說明
+進入主選單後，您可以：
+1.  **輸入數字**：直接執行特定專案的快照分析。
+2.  **輸入 `A`**：一次執行所有專案的分析。
+3.  **輸入 `M`**：進入**專案管理模式**，進行新增、移除或編輯路徑。
+
+報告將存儲於您設定的 `output_base_dir` 目錄中（預設為 `~/Documents/snapshot_reports`）。
 
 ---
 

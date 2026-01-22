@@ -5,6 +5,7 @@ import os
 import re
 import json
 import pathlib
+import subprocess # For calling osascript
 from collections import defaultdict
 import datetime
 import plistlib # For Info.plist
@@ -45,31 +46,104 @@ xcode_analyzer_logger.debug("Xcode Settings Analyzer Logger initialized (DEBUG t
 xcode_analyzer_logger.info("Xcode 設定分析記錄器已初始化 (INFO 輸出至主控台與檔案)")
 # --- End of Xcode Settings Logger Setup ---
 
+# --- CONSTANTS ---
+# Determine the absolute path to the project root (where config.json should live)
+# This handles cases where the script is run from a subdirectory (like script/)
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+CONFIG_FILE_PATH = PROJECT_ROOT / "config.json"
 
 # --- 0. CONFIGURATION LOADING ---
-def load_config():
-    config_path = pathlib.Path("config.json")
-    if not config_path.exists():
-        # Try looking in the parent directory if running from py/
-        parent_config_path = pathlib.Path(__file__).parent.parent / "config.json"
-        if parent_config_path.exists():
-            config_path = parent_config_path
+def interactive_config_setup():
+    """引導使用者建立初始設定檔的互動流程。"""
+    print("\n--- 歡迎使用 Project Snapshot Tool ---")
+    print(f"尚未偵測到設定檔 ({CONFIG_FILE_PATH.name})。")
+    print("我們可以立即為您初始化一個專案設定，以便馬上開始使用。")
     
+    try:
+        confirm = input("是否立即新增專案設定？(Y/n): ").strip().lower()
+    except EOFError:
+        confirm = 'n' # Handle cases where input might fail or be empty
+
+    if confirm == 'n':
+        return None
+
+    projects = {}
+    
+    while True:
+        print("\n--- 新增專案 ---")
+        name = input("請輸入專案名稱 (例如 MyAwesomeApp): ").strip()
+        if not name:
+            print("專案名稱不能為空。")
+            continue
+            
+        android_path = scan_and_select_project('android')
+        
+        # 嘗試智慧預測 iOS 路徑
+        ios_prediction = predict_related_path(android_path, 'ios')
+        ios_path = None
+        
+        if ios_prediction:
+            print(f"\n🔍 偵測到可能的 iOS 專案路徑: {ios_prediction}")
+            confirm_pred = input("  是否直接使用？ (Y/n): ").strip().lower()
+            if confirm_pred != 'n':
+                ios_path = ios_prediction
+        
+        if not ios_path:
+            ios_path = scan_and_select_project('ios')
+
+        projects[name] = {
+            "name": name,
+            "android_path": android_path,
+            "ios_path": ios_path
+        }
+        
+        more = input("\n是否要新增另一個專案？(y/N): ").strip().lower()
+        if more != 'y':
+            break
+
+    default_output = os.path.join(pathlib.Path.home(), "Documents", "snapshot_reports")
+    output_dir = input(f"\n請輸入報告輸出目錄 [預設: {default_output}]: ").strip()
+    if not output_dir:
+        output_dir = default_output
+
+    config_data = {
+        "projects": projects,
+        "output_base_dir": output_dir
+    }
+    
+    # Save to config.json
+    try:
+        # Ensure we write to the project root config.json
+        with open(CONFIG_FILE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
+        print(f"\n設定已成功儲存至: {CONFIG_FILE_PATH.resolve()}")
+        print("-" * 40 + "\n")
+        return config_data
+    except Exception as e:
+        print(f"儲存設定檔時發生錯誤: {e}")
+        return None
+
+def load_config():
     default_config = {
         "projects": {},
         "output_base_dir": str(pathlib.Path.home() / "Documents" / "snapshot_reports")
     }
 
-    if not config_path.exists():
-        print(f"Warning: config.json not found. Using defaults. Please copy config.example.json to config.json.")
+    if not CONFIG_FILE_PATH.exists():
+        # 嘗試互動式設定
+        new_config = interactive_config_setup()
+        if new_config:
+            return new_config
+            
+        print(f"Warning: {CONFIG_FILE_PATH.name} not found at {CONFIG_FILE_PATH}. Using defaults. Please copy config.example.json to config.json.")
         return default_config
 
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(CONFIG_FILE_PATH, 'r', encoding='utf-8') as f:
             user_config = json.load(f)
             return user_config
     except Exception as e:
-        print(f"Error loading config.json: {e}")
+        print(f"Error loading {CONFIG_FILE_PATH.name}: {e}")
         return default_config
 
 CONFIG = load_config()
@@ -122,7 +196,13 @@ IOS_EXCLUDES = [
     "xcode_analyzer_logs/", # Exclude the log directory created by this script
     # Add any other iOS-specific excludes
 ]
-IOS_RE_SWIFT_TYPE = re.compile(r"^\s*(?:(?:public|internal|fileprivate|private)\s+)?(?:open\s+|final\s+)?\s*(class|struct|enum|protocol|extension)\s+([A-Za-z_][A-Za-z0-9_<>,\]]*\.?)*?(?:\s*:\s*[A-Za-z0-9_<>,\]]+\.?)*?\s*\{?", re.MULTILINE)
+# Updated Regex for Swift Types:
+# 1. Supports optional modifiers (public, private, open, final, indirect, etc.)
+# 2. Captures the keyword (class, struct, enum, protocol, extension, actor)
+# 3. Captures the name greedily using a character class allowed in identifiers (including generics <>, dots ., etc.)
+#    It stops when it hits a space (usually before :) or a char not in the class.
+IOS_RE_SWIFT_TYPE = re.compile(r"^\s*(?:(?:public|internal|fileprivate|private|open|final|indirect)\s+)*(class|struct|enum|protocol|extension|actor)\s+([A-Za-z0-9_<>,\.\[\]]+)", re.MULTILINE)
+
 IOS_RE_SWIFT_FUNC = re.compile(r"^\s*(?:@[\w\.]+\s*)*(?:(?:public|internal|fileprivate|private)\s+)?(?:(?:static|class)\s+)?(?:mutating\s+|nonmutating\s+)?\s*func\s+([`A-Za-z_][A-Za-z0-9_`<>\?\[\]!\.\(\)]*)\s*\(([^)]*)\)\s*(?:(?:async\s+)?(?:re)?throws\s+)?(?:->\s*[\w\.<>\[\]\?!\[\]\(\)]+)?\s*\{?", re.MULTILINE)
 IOS_RE_SWIFT_SINGLE_LINE_COMMENT = re.compile(r"^\s*//\s*(.*)")
 IOS_RE_SWIFT_DOC_COMMENT = re.compile(r"^\s*///\s*(.*)")
@@ -350,6 +430,191 @@ def generate_xcode_settings_report_markdown(project_ios_root_path_str):
 
 
 # --- 1. Generic Helper Functions ---
+
+def select_folder_via_finder(prompt="請選擇資料夾"):
+    """使用 macOS AppleScript 開啟原生的資料夾選擇視窗。"""
+    try:
+        # AppleScript command to choose a folder
+        script = f'tell application "System Events" to activate\n' \
+                 f'set p to POSIX path of (choose folder with prompt "{prompt}")'
+        
+        proc = subprocess.run(['osascript', '-e', script], capture_output=True, text=True)
+        
+        if proc.returncode == 0:
+            path = proc.stdout.strip()
+            return path
+        else:
+            # User cancelled or error
+            return None
+    except Exception as e:
+        print(f"開啟 Finder 視窗失敗: {e}")
+        return None
+
+def scan_and_select_project(platform_type):
+    """
+    結合 GUI 選擇與智慧掃描。
+    platform_type: 'android' 或 'ios'
+    回傳: 選擇的專案路徑 (str) 或 None
+    """
+    print(f"\n配置 {platform_type} 路徑:")
+    print("  [Enter] 開啟 Finder 視窗選擇")
+    print("  [文字] 直接輸入路徑")
+    print("  [S] 跳過 (Skip)")
+    
+    choice = input("請選擇: ").strip()
+    
+    selected_path = None
+    
+    if choice.lower() == 's':
+        return None
+    elif not choice:
+        # Launch Finder
+        selected_path = select_folder_via_finder(f"選擇 {platform_type} 專案資料夾 (或其父目錄)")
+        if not selected_path:
+            print("  (已取消選擇)")
+            return None
+    else:
+        # Manual input
+        selected_path = os.path.expanduser(choice)
+
+    path_obj = pathlib.Path(selected_path)
+    if not path_obj.exists():
+        print(f"  [錯誤] 路徑不存在: {selected_path}")
+        return None
+
+    # check markers
+    android_markers = ["build.gradle", "build.gradle.kts"]
+    ios_markers = ["*.xcodeproj", "*.xcworkspace", "Podfile", "Package.swift"]
+    
+    markers = android_markers if platform_type == 'android' else ios_markers
+    
+    def is_project_root(p):
+        for m in markers:
+            if '*' in m:
+                if list(p.glob(m)): return True
+            elif (p / m).exists(): return True
+        return False
+
+    # 1. Check if the selected folder is arguably the project root itself
+    if is_project_root(path_obj):
+        print(f"  確認為 {platform_type} 專案根目錄: {path_obj.name}")
+        return str(path_obj)
+
+    # 2. If not, scan subdirectories (Depth limited)
+    print(f"  '{path_obj.name}' 看起來不像是直接的專案根目錄。正在掃描子目錄 (Max Depth: 3)...")
+    candidates = []
+    
+    # Common directories to ignore during scan to save time
+    ignore_dirs = {'.git', '.gradle', '.idea', 'build', 'captures', 'node_modules', 'Pods', 'DerivedData'}
+    max_scan_depth = 3
+    
+    try:
+        root_depth = len(path_obj.parts)
+        
+        for root, dirs, files in os.walk(str(path_obj)):
+            # Modify dirs in-place to skip ignored directories
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            current_path = pathlib.Path(root)
+            current_depth = len(current_path.parts) - root_depth
+            
+            if current_depth > max_scan_depth:
+                del dirs[:] # Stop descending
+                continue
+            
+            # Skip the root itself as we checked it in step 1
+            if current_depth == 0:
+                continue
+
+            if is_project_root(current_path):
+                candidates.append(current_path)
+                # If found a project root, don't look inside it (avoid nested modules causing duplicates)
+                del dirs[:]
+                
+    except Exception as e:
+        print(f"掃描失敗: {e}")
+    
+    if not candidates:
+        print("  未發現明顯的專案子目錄。將使用您選擇的目錄作為根目錄。")
+        return str(path_obj)
+    
+    print(f"\n找到 {len(candidates)} 個可能的專案:")
+    # Sort candidates by depth (shallower first) then name
+    candidates.sort(key=lambda p: (len(p.parts), p.name))
+    
+    for i, c in enumerate(candidates):
+        rel_str = str(c.relative_to(path_obj))
+        print(f"  {i+1}. {rel_str}")
+    print(f"  {len(candidates)+1}. 使用原本選擇的目錄 ({path_obj.name})")
+    
+    while True:
+        try:
+            sel = int(input(f"請選擇 (1-{len(candidates)+1}): "))
+            if 1 <= sel <= len(candidates):
+                return str(candidates[sel-1])
+            elif sel == len(candidates) + 1:
+                return str(path_obj)
+        except ValueError:
+            pass
+
+def predict_related_path(known_path_str, target_platform):
+    """
+    根據已知的路徑 (known_path_str) 猜測另一個平台 (target_platform) 的路徑。
+    例如：
+    1. .../project/android -> .../project/ios (Sibling)
+    2. .../project (Root) -> .../project/ios (Child)
+    3. .../project/Android/app -> .../project/iOS/app (Parallel/Cousin)
+    """
+    if not known_path_str:
+        return None
+        
+    known_path = pathlib.Path(known_path_str)
+    target_names = []
+    
+    if target_platform == 'ios':
+        target_names = ['ios', 'iOS', 'iosApp', 'Runner'] # Runner is for Flutter
+    elif target_platform == 'android':
+        target_names = ['android', 'Android', 'androidApp']
+        
+    # 策略 1: 檢查兄弟目錄 (Sibling)
+    # 適用於 .../project/android -> .../project/ios
+    parent = known_path.parent
+    for name in target_names:
+        candidate = parent / name
+        if candidate.exists() and candidate.is_dir():
+            return str(candidate)
+            
+    # 策略 2: 檢查子目錄 (Child)
+    # 適用於 .../project (Root) -> .../project/ios
+    for name in target_names:
+        candidate = known_path / name
+        if candidate.exists() and candidate.is_dir():
+            return str(candidate)
+
+    # 策略 3: 平行結構/堂兄弟 (Parallel/Cousin) - 針對您的案例
+    # 適用於 .../root/Android/myapp -> .../root/iOS/myapp
+    # 邏輯：往上找兩層 (Grandparent)，找目標平台資料夾，再找同名子資料夾
+    grandparent = parent.parent
+    current_folder_name = known_path.name # e.g., 'myapp'
+    
+    for name in target_names:
+        parallel_platform_folder = grandparent / name # e.g., .../root/iOS
+        if parallel_platform_folder.exists() and parallel_platform_folder.is_dir():
+            # 3a. 檢查是否包含同名資料夾 (.../root/iOS/myapp)
+            same_name_candidate = parallel_platform_folder / current_folder_name
+            if same_name_candidate.exists() and same_name_candidate.is_dir():
+                return str(same_name_candidate)
+            
+            # 3b. 也許平行資料夾本身就是專案根目錄 (.../root/iOS)
+            # 這裡可以簡單檢查一下裡面是否有特徵檔案，避免誤判
+            if target_platform == 'ios':
+                if list(parallel_platform_folder.glob("*.xcodeproj")) or (parallel_platform_folder / "Podfile").exists():
+                    return str(parallel_platform_folder)
+            elif target_platform == 'android':
+                if (parallel_platform_folder / "build.gradle").exists() or (parallel_platform_folder / "build.gradle.kts").exists():
+                    return str(parallel_platform_folder)
+
+    return None
 
 def parse_ignore_patterns(ignore_file_path):
     """Parses a .gitignore or .cursorignore file and returns a list of patterns."""
@@ -857,8 +1122,13 @@ def ios_parse_swift_file(file_path):
         type_match = IOS_RE_SWIFT_TYPE.search(line_content) 
         if type_match:
             entity_type = type_match.group(1)
-            entity_name_raw = type_match.group(2).strip().replace('`', '')
-            entity_name = entity_name_raw
+            
+            # Safely handle potential None for group(2)
+            raw_name_group = type_match.group(2)
+            if raw_name_group:
+                entity_name = raw_name_group.strip().replace('`', '')
+            else:
+                entity_name = "(Unknown)"
 
             if current_comment_lines:
                 content.append(f"  - **{entity_type.capitalize()} {entity_name}**")
@@ -1184,74 +1454,215 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
 
 
 # --- 4. Main Orchestration ---
+def save_config_file():
+    """儲存目前的 CONFIG 全域變數至 config.json"""
+    try:
+        with open(CONFIG_FILE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(CONFIG, f, indent=4, ensure_ascii=False)
+        print(f"  [系統] 設定檔已更新: {CONFIG_FILE_PATH.resolve()}")
+        return True
+    except Exception as e:
+        print(f"  [錯誤] 儲存設定檔時發生問題: {e}")
+        return False
+
+def manage_projects():
+    """專案管理選單 (新增/修改/刪除)"""
+    while True:
+        projects = CONFIG.get("projects", {})
+        print("\n--- 專案管理模式 ---")
+        print("1. 新增專案 (Add Project)")
+        print("2. 移除專案 (Remove Project)")
+        print("3. 編輯專案路徑 (Edit Project Paths)")
+        print("4. 返回主選單 (Back)")
+        
+        choice = input("請選擇操作 (1-4): ").strip()
+        
+        if choice == '1': # Add
+            name = input("輸入新專案名稱 (例如 MyNewApp): ").strip()
+            if not name:
+                print("名稱不能為空。")
+                continue
+            if name in projects:
+                print(f"專案 '{name}' 已存在。")
+                continue
+                
+            android_path = scan_and_select_project('android')
+            
+            # 嘗試智慧預測 iOS 路徑
+            ios_prediction = predict_related_path(android_path, 'ios')
+            ios_path = None
+            
+            if ios_prediction:
+                print(f"\n🔍 偵測到可能的 iOS 專案路徑: {ios_prediction}")
+                confirm_pred = input("  是否直接使用？ (Y/n): ").strip().lower()
+                if confirm_pred != 'n':
+                    ios_path = ios_prediction
+            
+            if not ios_path:
+                ios_path = scan_and_select_project('ios')
+            
+            projects[name] = {
+                "name": name,
+                "android_path": android_path,
+                "ios_path": ios_path
+            }
+            save_config_file()
+            print(f"專案 '{name}' 已新增。")
+
+        elif choice == '2': # Remove
+            if not projects:
+                print("目前沒有專案。")
+                continue
+            
+            keys = list(projects.keys())
+            for i, k in enumerate(keys):
+                print(f"  {i+1}. {projects[k].get('name', k)}")
+            
+            try:
+                idx = int(input(f"選擇要移除的專案 (1-{len(keys)}), 或 0 取消: "))
+                if 1 <= idx <= len(keys):
+                    key_to_remove = keys[idx-1]
+                    confirm = input(f"確定要移除 '{key_to_remove}' 嗎? (y/N): ").lower()
+                    if confirm == 'y':
+                        del projects[key_to_remove]
+                        save_config_file()
+                        print(f"專案 '{key_to_remove}' 已移除。")
+                elif idx == 0:
+                    continue
+            except ValueError:
+                print("輸入無效。")
+
+        elif choice == '3': # Edit
+            if not projects:
+                print("目前沒有專案。")
+                continue
+            
+            keys = list(projects.keys())
+            for i, k in enumerate(keys):
+                print(f"  {i+1}. {projects[k].get('name', k)}")
+                
+            try:
+                idx = int(input(f"選擇要編輯的專案 (1-{len(keys)}), 或 0 取消: "))
+                if 1 <= idx <= len(keys):
+                    key_to_edit = keys[idx-1]
+                    proj = projects[key_to_edit]
+                    print(f"\n編輯專案: {proj.get('name', key_to_edit)}")
+                    print(f"目前 Android 路徑: {proj.get('android_path', '(未設定)')}")
+                    print(f"目前 iOS 路徑: {proj.get('ios_path', '(未設定)')}")
+                    
+                    if input("是否修改 Android 路徑? (y/N): ").lower() == 'y':
+                        new_android = scan_and_select_project('android')
+                        if new_android: proj['android_path'] = new_android
+
+                    if input("是否修改 iOS 路徑? (y/N): ").lower() == 'y':
+                        new_ios = scan_and_select_project('ios')
+                        if new_ios: proj['ios_path'] = new_ios
+                    
+                    save_config_file()
+                    print("專案已更新。")
+            except ValueError:
+                print("輸入無效。")
+
+        elif choice == '4': # Back
+            break
+        else:
+            print("無效的選擇。")
+
 def get_user_choices():
     """Gets project and platform choices from the user."""
-    print("可用專案 (Available Projects):")
-    project_options = list(PROJECT_CONFIGS.keys())
-    for i, name in enumerate(project_options):
-        print(f"  {i+1}. {PROJECT_CONFIGS[name].get('name', name)}")
-    print(f"  {len(project_options)+1}. 所有專案 (All Projects)")
-
     while True:
-        try:
-            choice = int(input(f"選擇專案 (1-{len(project_options)+1}): "))
-            if 1 <= choice <= len(project_options):
-                selected_projects = [project_options[choice-1]]
-                break
-            elif choice == len(project_options) + 1:
-                selected_projects = project_options
-                break
-            else:
-                print("無效的選擇。")
-        except ValueError:
-            print("請輸入數字。")
-
-    print("\n可用平台 (Available Platforms):")
-    platform_options = ["Android", "iOS"]
-    for i, name in enumerate(platform_options):
-        print(f"  {i+1}. {name}")
-    print(f"  {len(platform_options)+1}. 所有平台 (All Platforms)")
-
-    while True:
-        try:
-            choice = int(input(f"選擇平台 (1-{len(platform_options)+1}): "))
-            if 1 <= choice <= len(platform_options):
-                selected_platforms = [platform_options[choice-1].lower()]
-                break
-            elif choice == len(platform_options) + 1:
-                selected_platforms = [p.lower() for p in platform_options]
-                break
-            else:
-                print("無效的選擇。")
-        except ValueError:
-            print("請輸入數字。")
+        # Reload projects from global CONFIG every time we show the menu
+        # because manage_projects() might have modified it.
+        current_projects = CONFIG.get("projects", {})
+        project_options = list(current_projects.keys())
+        
+        print("\n=== Snapshot Tool 主選單 ===")
+        
+        if not project_options:
+             print("目前無專案 (No projects available)")
+             print("請輸入 'M' 進入管理模式新增專案。")
+        else:
+            print("[執行特定專案] (輸入數字):")
+            for i, name in enumerate(project_options):
+                p_name = current_projects[name].get('name', name)
+                print(f"  {i+1}. 執行: {p_name}")
             
-    return selected_projects, selected_platforms
+        print("\n[其他操作]:")
+        if project_options:
+            print(f"  A. 🚀 執行所有專案 (Run All)")
+        print(f"  M. 🔧 專案管理 (新增/移除/編輯)")
+        print(f"  Q. 離開 (Quit)")
+
+        choice_raw = input(f"\n請輸入專案編號 (例如 1) 或操作代碼 (A/M/Q): ").strip().lower()
+        
+        if choice_raw == 'q':
+            print("再見！")
+            exit(0)
+            
+        if choice_raw == 'm':
+            manage_projects()
+            continue # Loop back to redraw menu
+            
+        if choice_raw == 'a' and project_options:
+            selected_projects = project_options
+        else:
+            try:
+                choice = int(choice_raw)
+                if 1 <= choice <= len(project_options):
+                    selected_projects = [project_options[choice-1]]
+                else:
+                    print(f"無效的數字選擇: {choice}。請輸入 1 到 {len(project_options)} 之間的數字。")
+                    continue
+            except ValueError:
+                print("無效的輸入。請輸入專案編號數字，或 M/A/Q。")
+                continue
+
+        # Platform Selection (Only happens if a project was selected)
+        print("\n可用平台 (Available Platforms):")
+        print("  1. Android")
+        print("  2. iOS")
+        print("  3. 雙平台 (Both)")
+
+        while True:
+            try:
+                p_choice = input(f"選擇平台 (1-3) [預設 3]: ").strip()
+                if not p_choice: # Default to both
+                     selected_platforms = ['android', 'ios']
+                     break
+                if p_choice == '1':
+                    selected_platforms = ['android']
+                    break
+                elif p_choice == '2':
+                    selected_platforms = ['ios']
+                    break
+                elif p_choice == '3':
+                    selected_platforms = ['android', 'ios']
+                    break
+                else:
+                    print("無效的選擇。")
+            except ValueError:
+                pass
+                
+        return selected_projects, selected_platforms
 
 def main():
     """Main execution function."""
-    check = True
-    for key, config in PROJECT_CONFIGS.items():
-        if "android_path" in config and not os.path.exists(os.path.expanduser(config["android_path"])):
-            print(f"警告：'{config.get('name',key)}' 的 Android 路徑似乎未設定或無效：{config['android_path']}")
-            check = False
-        if "ios_path" in config and not os.path.exists(os.path.expanduser(config["ios_path"])):
-            print(f"警告：'{config.get('name',key)}' 的 iOS 路徑似乎未設定或無效：{config['ios_path']}")
-            check = False
+    # check = True logic removed or moved inside loop as it was static check based on initial load
     
-    if check == False:
-        proceed = input("專案路徑可能需要設定。是否繼續？ (y/n)：")
-        if proceed.lower() != 'y':
-            print("已退出。請在腳本頂部設定 PROJECT_CONFIGS。")
-            return
-
     selected_project_keys, selected_platforms = get_user_choices()
+    
+    # Reload project configs in case they were changed in the menu
+    current_project_configs = CONFIG.get("projects", {})
 
     OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"\n報告將儲存至：{OUTPUT_BASE_DIR}")
 
     for project_key in selected_project_keys:
-        project_config = PROJECT_CONFIGS[project_key]
+        project_config = current_project_configs.get(project_key)
+        if not project_config:
+             print(f"錯誤：找不到專案設定 '{project_key}'")
+             continue
+             
         project_display_name = project_config.get("name", project_key)
 
         if "android" in selected_platforms:
