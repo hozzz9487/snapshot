@@ -48,14 +48,6 @@ Modern AI models have context limits. Feeding raw source code often introduces "
     git clone https://github.com/hozzz9487/snapshot.git
     cd snapshot
     ```
-2.  **Environment Setup**:
-    ```bash
-    # Setting up venv (Recommended)
-    python3 -m venv .
-    source bin/activate
-    # Install dependencies
-    pip install -r requirements.txt
-    ```
 
 ---
 
@@ -76,12 +68,24 @@ You can still manage configuration manually if you prefer:
 Run the interactive tool via script or Python:
 
 ### Option 1: Using the script (Recommended)
+This script automatically creates a virtual environment (`.venv`) and installs dependencies for you.
+
 ```bash
 ./script/snapshot.command
 ```
 
-### Option 2: Using Python directly
+### Option 2: Manual Python Execution
+If you prefer to manage the environment manually:
+
 ```bash
+# 1. Create and activate venv
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run the tool
 python3 py/snapshot.py
 ```
 

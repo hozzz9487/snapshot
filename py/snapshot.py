@@ -37,13 +37,13 @@ rotating_handler.setLevel(logging.DEBUG)
 rotating_handler.setFormatter(xcode_formatter)
 xcode_analyzer_logger.addHandler(rotating_handler)
 
-stream_handler_xcode = logging.StreamHandler(sys.stdout) # Keep sys.stdout as per original
-stream_handler_xcode.setLevel(logging.INFO) # Keep INFO level for console from this part
-stream_handler_xcode.setFormatter(xcode_formatter)
-xcode_analyzer_logger.addHandler(stream_handler_xcode)
+# stream_handler_xcode = logging.StreamHandler(sys.stdout) # Keep sys.stdout as per original
+# stream_handler_xcode.setLevel(logging.INFO) # Keep INFO level for console from this part
+# stream_handler_xcode.setFormatter(xcode_formatter)
+# xcode_analyzer_logger.addHandler(stream_handler_xcode)
 
 xcode_analyzer_logger.debug("Xcode Settings Analyzer Logger initialized (DEBUG to file)")
-xcode_analyzer_logger.info("Xcode 設定分析記錄器已初始化 (INFO 輸出至主控台與檔案)")
+# xcode_analyzer_logger.info("Xcode 設定分析記錄器已初始化 (INFO 輸出至主控台與檔案)")
 # --- End of Xcode Settings Logger Setup ---
 
 # --- CONSTANTS ---
@@ -51,383 +51,6 @@ xcode_analyzer_logger.info("Xcode 設定分析記錄器已初始化 (INFO 輸出
 # This handles cases where the script is run from a subdirectory (like script/)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_FILE_PATH = PROJECT_ROOT / "config.json"
-
-# --- 0. CONFIGURATION LOADING ---
-def interactive_config_setup():
-    """引導使用者建立初始設定檔的互動流程。"""
-    print("\n--- 歡迎使用 Project Snapshot Tool ---")
-    print(f"尚未偵測到設定檔 ({CONFIG_FILE_PATH.name})。")
-    print("我們可以立即為您初始化一個專案設定，以便馬上開始使用。")
-    
-    try:
-        confirm = input("是否立即新增專案設定？(Y/n): ").strip().lower()
-    except EOFError:
-        confirm = 'n' # Handle cases where input might fail or be empty
-
-    if confirm == 'n':
-        return None
-
-    projects = {}
-    
-    while True:
-        print("\n--- 新增專案 ---")
-        name = input("請輸入專案名稱 (例如 MyAwesomeApp): ").strip()
-        if not name:
-            print("專案名稱不能為空。")
-            continue
-            
-        android_path = scan_and_select_project('android')
-        
-        # 嘗試智慧預測 iOS 路徑
-        ios_prediction = predict_related_path(android_path, 'ios')
-        ios_path = None
-        
-        if ios_prediction:
-            print(f"\n🔍 偵測到可能的 iOS 專案路徑: {ios_prediction}")
-            confirm_pred = input("  是否直接使用？ (Y/n): ").strip().lower()
-            if confirm_pred != 'n':
-                ios_path = ios_prediction
-        
-        if not ios_path:
-            ios_path = scan_and_select_project('ios')
-
-        projects[name] = {
-            "name": name,
-            "android_path": android_path,
-            "ios_path": ios_path
-        }
-        
-        more = input("\n是否要新增另一個專案？(y/N): ").strip().lower()
-        if more != 'y':
-            break
-
-    default_output = os.path.join(pathlib.Path.home(), "Documents", "snapshot_reports")
-    output_dir = input(f"\n請輸入報告輸出目錄 [預設: {default_output}]: ").strip()
-    if not output_dir:
-        output_dir = default_output
-
-    config_data = {
-        "projects": projects,
-        "output_base_dir": output_dir
-    }
-    
-    # Save to config.json
-    try:
-        # Ensure we write to the project root config.json
-        with open(CONFIG_FILE_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config_data, f, indent=4, ensure_ascii=False)
-        print(f"\n設定已成功儲存至: {CONFIG_FILE_PATH.resolve()}")
-        print("-" * 40 + "\n")
-        return config_data
-    except Exception as e:
-        print(f"儲存設定檔時發生錯誤: {e}")
-        return None
-
-def load_config():
-    default_config = {
-        "projects": {},
-        "output_base_dir": str(pathlib.Path.home() / "Documents" / "snapshot_reports")
-    }
-
-    if not CONFIG_FILE_PATH.exists():
-        # 嘗試互動式設定
-        new_config = interactive_config_setup()
-        if new_config:
-            return new_config
-            
-        print(f"Warning: {CONFIG_FILE_PATH.name} not found at {CONFIG_FILE_PATH}. Using defaults. Please copy config.example.json to config.json.")
-        return default_config
-
-    try:
-        with open(CONFIG_FILE_PATH, 'r', encoding='utf-8') as f:
-            user_config = json.load(f)
-            return user_config
-    except Exception as e:
-        print(f"Error loading {CONFIG_FILE_PATH.name}: {e}")
-        return default_config
-
-CONFIG = load_config()
-PROJECT_CONFIGS = CONFIG.get("projects", {})
-try:
-    OUTPUT_BASE_DIR = pathlib.Path(os.path.expanduser(CONFIG.get("output_base_dir", "~/Documents/snapshot_reports")))
-except Exception:
-     OUTPUT_BASE_DIR = pathlib.Path.home() / "Documents" / "snapshot_reports"
-
-TREE_MAX_DEPTH = CONFIG.get("tree_max_depth", 20)
-TREE_INDENT_CHAR = CONFIG.get("tree_indent_char", "    ")
-
-# --- Android Specific Settings (adapted from your original script) ---
-ANDROID_EXCLUDES = [
-    '.gradle/', 'build/', '.idea/', '*.iml', 'local.properties',
-    '.DS_Store', 'snapshot.py', 'snapshot.md', 'captures/',
-    'release/', '*.keystore', '*.jks', '.git/',
-    # Add any other Android-specific excludes
-]
-ANDROID_PARSE_XML_RESOURCES_DETAILS = False
-ANDROID_RE_CLASS_INTERFACE = re.compile(r"^\s*(?:public|protected|private|static|\s)*\s*(class|interface)\s+([A-Za-z_][A-Za-z0-9_<>,\]]*)(?:\s+extends\s+[A-Za-z0-9_<>,\]]+)?(?:\s+implements\s+[A-Za-z0-9_<>,\]]+)?\s*\{")
-ANDROID_RE_METHOD = re.compile(r"^\s*(?:@[\w\.]+\s*)*(?:public|protected)\s+(?:static\s+|final\s+|<[\w\s,]+>\s*)*([\w\.<>\[\]]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:throws\s+[\w\.,\s]+)?\s*\{?", re.MULTILINE)
-ANDROID_RE_SINGLE_LINE_COMMENT = re.compile(r"^\s*//\s*(.*)")
-ANDROID_RE_JAVADOC_START = re.compile(r"^\s*/\*\*\s*(.*)")
-ANDROID_RE_JAVADOC_END = re.compile(r"\s*\*/")
-ANDROID_RE_MANIFEST_PERMISSION = re.compile(r'<uses-permission\s+android:name="([^"]+)"\s*/>')
-ANDROID_RE_MANIFEST_APPLICATION_NAME = re.compile(r'<application[^>]*android:name="([^"]+)"')
-ANDROID_RE_MANIFEST_COMPONENT = re.compile(r'<(activity|service|receiver)\s+[^>]*android:name="([^"]+)"')
-ANDROID_RE_XML_ID = re.compile(r'android:id="@\+id/([^"]+)"')
-ANDROID_RE_XML_STRING_NAME = re.compile(r'<string\s+name="([^"]+)"[^>]*>')
-ANDROID_RE_GRADLE_DEPENDENCY = re.compile(r"^\s*(implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)\s*(?:\(|\s)\"([^\"]+)\"", re.MULTILINE)
-ANDROID_RE_GRADLE_DEPENDENCY_LIBS = re.compile(r"^\s*(implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)\s*\(\s*libs\.([\w\.-]+)\s*\)", re.MULTILINE)
-ANDROID_RE_SETTINGS_GRADLE_ROOT_NAME = re.compile(r"^\s*rootProject\.name\s*=\s*\"([^\"]+)\"", re.MULTILINE)
-ANDROID_RE_SETTINGS_GRADLE_INCLUDE = re.compile(r"^\s*include\s*\"\":(.*?)\"\"", re.MULTILINE)
-
-ANDROID_RE_KOTLIN_CLASS = re.compile(r"^\s*(?:[a-z]+\s+)*(class|interface|object|enum class|sealed class|data class)\s+([A-Za-z_][A-Za-z0-9_]*)(?:.*)?\{?", re.MULTILINE)
-# Match function declarations including extension functions (fun Type.functionName)
-ANDROID_RE_KOTLIN_FUNCTION = re.compile(r"^\s*(?:@[\w\.]+\s+)*(?:[a-z]+\s+)*fun\s+(?:[A-Za-z_][A-Za-z0-9_<>\[\]\?]*\.)?([A-Za-z_][A-Za-z0-9_`]*)\s*\(", re.MULTILINE)
-ANDROID_RE_KOTLIN_PROPERTY = re.compile(r"^\s*(?:[a-z]+\s+)*(val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z0-9_<>\[\]\?]+)?\s*=", re.MULTILINE)
-
-
-
-# --- iOS Specific Settings ---
-IOS_EXCLUDES = [
-    ".DS_Store", "snapshot.py", "snapshot.md", # General self-ignores
-    ".git/", "Pods/", "Carthage/", "build/", "DerivedData/",
-    "*.xcodeproj/project.xcworkspace/", "*.xcodeproj/xcuserdata/",
-    "*.xcworkspace/xcuserdata/", "*.xcassets/*/.json", # Exclude json inside asset catalogs
-    "xcuserdata/", ".swiftpm/",
-    "xcode_analyzer_logs/", # Exclude the log directory created by this script
-    # Add any other iOS-specific excludes
-]
-# Updated Regex for Swift Types:
-# 1. Supports optional modifiers (public, private, open, final, indirect, etc.)
-# 2. Captures the keyword (class, struct, enum, protocol, extension, actor)
-# 3. Captures the name greedily using a character class allowed in identifiers (including generics <>, dots ., etc.)
-#    It stops when it hits a space (usually before :) or a char not in the class.
-IOS_RE_SWIFT_TYPE = re.compile(r"^\s*(?:(?:public|internal|fileprivate|private|open|final|indirect)\s+)*(class|struct|enum|protocol|extension|actor)\s+([A-Za-z0-9_<>,\.\[\]]+)", re.MULTILINE)
-
-IOS_RE_SWIFT_FUNC = re.compile(r"^\s*(?:@[\w\.]+\s*)*(?:(?:public|internal|fileprivate|private)\s+)?(?:(?:static|class)\s+)?(?:mutating\s+|nonmutating\s+)?\s*func\s+([`A-Za-z_][A-Za-z0-9_`<>\?\[\]!\.\(\)]*)\s*\(([^)]*)\)\s*(?:(?:async\s+)?(?:re)?throws\s+)?(?:->\s*[\w\.<>\[\]\?!\[\]\(\)]+)?\s*\{?", re.MULTILINE)
-IOS_RE_SWIFT_SINGLE_LINE_COMMENT = re.compile(r"^\s*//\s*(.*)")
-IOS_RE_SWIFT_DOC_COMMENT = re.compile(r"^\s*///\s*(.*)")
-IOS_RE_SWIFT_MULTILINE_START = re.compile(r"^\s*/\*(?!\*).*", re.MULTILINE) # Avoid matching /** (doc comments handled by javadoc like regex)
-IOS_RE_SWIFT_MULTILINE_DOC_START = re.compile(r"^\s*/\*\*\s*(.*)", re.MULTILINE)
-IOS_RE_SWIFT_MULTILINE_END = re.compile(r".*\*/\s*$", re.MULTILINE)
-IOS_RE_PODFILE_POD = re.compile(r"^\s*pod\s+\"([^\"]+)\"(?:,\s*\"[^\"]+\")?", re.MULTILINE) # Basic pod name
-IOS_RE_PODFILE_LOCK_POD = re.compile(r"^\s*-\s+([A-Za-z0-9_/\-]+)\s+\([\w\.-]+\)", re.MULTILINE)
-IOS_RE_SPM_PACKAGE_URL = re.compile(r"\.package\s*\(\s*(?:name:\s*\"([^\"]+)\"\s*,)?\s*url:\s*\"([^\"]+)\"", re.MULTILINE)
-IOS_RE_SPM_PACKAGE_PATH = re.compile(r"\.package\s*\(\s*(?:name:\s*\"([^\"]+)\"\s*,)?\s*path:\s*\"([^\"]+)\"", re.MULTILINE)
-
-
-# --- XCODE SETTINGS ANALYSIS FUNCTIONS (from analyze_xcode_settings.py) ---
-def xcode_escape_markdown(text):
-    """逸脫 Markdown 特殊字元，特別是針對表格內的內容。"""
-    if not isinstance(text, str):
-        text = str(text)
-    # 逸脫反引號和豎線，因為它們在表格中和程式碼塊中有特殊意義
-    text = text.replace('`', '\\`').replace('|', '\\|')
-    return text
-
-def xcode_format_settings_to_markdown_table(settings_dict, title="Build Settings"):
-    """
-    將建構設定字典格式化為 Markdown 表格。
-    """
-    xcode_analyzer_logger.debug(f"DEBUG: xcode_format_settings_to_markdown_table called for '{title}'")
-    xcode_analyzer_logger.debug(f"DEBUG: Type of settings_dict: {type(settings_dict)}")
-
-    is_empty = False
-    actual_settings_items = {} # 用來儲存實際的建構設定
-
-    if settings_dict and hasattr(settings_dict, '__dict__'):
-        xcode_analyzer_logger.debug(f"DEBUG: Accessing settings_dict.__dict__ for '{title}'")
-        for key, value in settings_dict.__dict__.items():
-            if key != '_parent': # 過濾掉內部使用的 _parent 屬性
-                actual_settings_items[key] = value
-                
-    if not actual_settings_items: # 如果過濾後為空
-        if settings_dict is not None and hasattr(settings_dict, '__dict__') and len(settings_dict.__dict__) <= 1 and not actual_settings_items:
-            return f"> __{title}:__ 此設定檔無定義特定設定 (空白或僅包含內部屬性)。\n\n"
-        return f"> __{title}:__ 此設定檔無定義特定設定。\n\n"
-
-    md_output = [f"> __{title}:__\n"]
-    md_output.append("| 設定鍵值 (Setting Key) | 值 (Value) |")
-    md_output.append("|-------------|-------|")
-
-    try:
-        sorted_keys = sorted(actual_settings_items.keys())
-    except TypeError as e_sort:
-        xcode_analyzer_logger.debug(f"DEBUG: Error during key sorting for '{title}' from actual_settings_items: {e_sort}")
-        md_output.append(f"| 錯誤: 無法排序 {title} 的設定 (詳細資訊: {xcode_escape_markdown(str(e_sort))}) |  |")
-        md_output.append("\n")
-        return "\n".join(md_output)
-
-    if not sorted_keys and not is_empty:
-         return f"> __{title}:__ 找到設定物件，但在過濾後似乎為空。\n\n"
-
-    for key in sorted_keys:
-        value = actual_settings_items[key]
-        
-        if isinstance(value, (list, tuple)):
-            value_str = ", ".join(map(str, value))
-        else:
-            value_str = str(value)
-        
-        escaped_key = f"`{xcode_escape_markdown(str(key))}`"
-        escaped_value = f"`{xcode_escape_markdown(value_str)}`"
-        md_output.append(f"| {escaped_key} | {escaped_value} |")
-    md_output.append("\n")
-    return "\n".join(md_output)
-
-def generate_xcode_settings_report_markdown(project_ios_root_path_str):
-    """
-    分析指定的 Xcode 專案路徑 (iOS project root)，提取建構設定並生成 Markdown 報告 string.
-    """
-    markdown_content = ["\n## Xcode 專案建構設定分析 (Build Settings Analysis)\n"] # Added newline for better spacing
-    
-    project_ios_root_path = pathlib.Path(project_ios_root_path_str)
-    xcodeproj_dirs = list(project_ios_root_path.glob("*.xcodeproj"))
-
-    if not xcodeproj_dirs:
-        err_msg = f"No .xcodeproj directory found in `{project_ios_root_path_str}`"
-        xcode_analyzer_logger.error(f"Error: {err_msg}") # Use the logger
-        markdown_content.append(f"錯誤: 在 `{project_ios_root_path_str}` 找不到 .xcodeproj 目錄\n")
-        return "\n".join(markdown_content)
-
-    # Use the first .xcodeproj found (typically there's one at the root of an iOS project)
-    xcodeproj_path_obj = xcodeproj_dirs[0]
-    pbxproj_path_obj = xcodeproj_path_obj / "project.pbxproj"
-    
-    if not pbxproj_path_obj.exists():
-        err_msg = f"Could not find project.pbxproj in `{xcodeproj_path_obj}`"
-        xcode_analyzer_logger.error(f"Error: {err_msg}")
-        markdown_content.append(f"錯誤: 在 `{xcodeproj_path_obj}` 找不到 project.pbxproj\n")
-        return "\n".join(markdown_content)
-
-    markdown_content.append(f"分析目標：`{pbxproj_path_obj.resolve()}`\n")
-
-    try:
-        # XcodeProject.load expects a string path
-        project = XcodeProject.load(str(pbxproj_path_obj))
-    except Exception as e:
-        err_msg = f"Error loading project file {pbxproj_path_obj}: {e}"
-        xcode_analyzer_logger.error(err_msg) # Use the logger
-        markdown_content.append(f"載入專案檔 `{pbxproj_path_obj}` 時發生錯誤：{e}\n")
-        return "\n".join(markdown_content)
-
-    # --- 1. 專案級別 (Project-Level) 建構設定 ---
-    markdown_content.append("### 1. 專案層級 (Project-Level) 建構設定\n") # Changed to H3 for better nesting
-    markdown_content.append("> 這些設定套用於整個專案，並可能被個別 Target 繼承或覆寫。\n")
-
-    project_object = project.get_object(project.rootObject)
-    if project_object and hasattr(project_object, 'buildConfigurationList'):
-        config_list_id = project_object.buildConfigurationList
-        config_list = project.get_object(config_list_id)
-        
-        if config_list and hasattr(config_list, 'buildConfigurations') and config_list.buildConfigurations:
-            for config_id in config_list.buildConfigurations:
-                config = project.get_object(config_id)
-                if not config:
-                    markdown_content.append(f"> 警告：無法取得 ID 為 '{config_id}' 的專案層級設定物件。\n")
-                    continue
-                config_name = getattr(config, 'name', 'Unknown Configuration')
-                markdown_content.append(f"#### Configuration: {config_name}\n") # Changed to H4
-                build_settings = getattr(config, 'buildSettings', None)
-                markdown_content.append(xcode_format_settings_to_markdown_table(build_settings, title=f"{config_name} 設定"))
-        else:
-            markdown_content.append("> 未在專案層級找到建構設定 (或列表為空/格式錯誤)。\n\n")
-    else:
-        markdown_content.append("> 無法取得專案層級的建構設定 (根物件或其 buildConfigurationList 遺失/無效)。\n\n")
-
-    # --- 2. Target 級別 (Target-Level) 建構設定 ---
-    markdown_content.append("### 2. 目標層級 (Target-Level) 建構設定\n") # Changed to H3
-    markdown_content.append("> 這些設定專屬於個別 Target，並會覆寫專案層級的設定。\n")
-
-    project_targets = []
-    try:
-        retrieved_targets = project.get_targets()
-        if retrieved_targets:
-            project_targets = retrieved_targets
-    except AttributeError:
-        try:
-            if hasattr(project, 'objects') and hasattr(project.objects, 'get_targets'):
-                retrieved_targets_fallback = project.objects.get_targets()
-                if retrieved_targets_fallback:
-                    project_targets = retrieved_targets_fallback
-        except Exception as e_fallback:
-            xcode_analyzer_logger.debug(f"DEBUG: Error during fallback target retrieval: {e_fallback}") 
-    except Exception as e_get_targets:
-        xcode_analyzer_logger.debug(f"DEBUG: An unexpected error occurred while calling `project.get_targets()`: {e_get_targets}")
-
-    if not project_targets:
-        markdown_content.append("> 專案中未找到 Targets，或讀取時發生錯誤。\n")
-        # Optionally add more detailed error from above if needed
-        markdown_content.append("\n")
-    else:
-        for target in project_targets:
-            target_name = getattr(target, 'name', 'Unknown Target')
-            product_type = getattr(target, 'productType', 'Unknown Type')
-            markdown_content.append(f"#### Target: {target_name} (Product Type: `{product_type}`)\n") # Changed to H4
-            
-            build_config_list_id = getattr(target, 'buildConfigurationList', None)
-            if build_config_list_id:
-                config_list = project.get_object(build_config_list_id)
-                if config_list and hasattr(config_list, 'buildConfigurations') and config_list.buildConfigurations:
-                    for config_id in config_list.buildConfigurations:
-                        config = project.get_object(config_id)
-                        if not config:
-                            markdown_content.append(f"> 警告：無法取得 Target '{target_name}' 中 ID 為 '{config_id}' 的設定物件。\n")
-                            continue
-                        config_name = getattr(config, 'name', 'Unknown Configuration')
-                        markdown_content.append(f"##### Configuration: {config_name} (for Target: {target_name})\n") # Changed to H5
-                        build_settings = getattr(config, 'buildSettings', None)
-                        markdown_content.append(xcode_format_settings_to_markdown_table(build_settings, title=f"{target_name} 的 {config_name} 設定"))
-                else:
-                    # ... (simplified warning message generation for brevity)
-                    markdown_content.append(f"> Target '{target_name}' 未找到建構設定。\n\n")
-            else:
-                markdown_content.append(f"> Target '{target_name}' 沒有 'buildConfigurationList' ID 或其無效/為空。\n\n")
-            
-    # --- 3. (可選) 其他 Project.pbxproj 資訊 ---
-    markdown_content.append("### 3. 其他專案資訊 (檔案參照 - File References)\n") # Changed to H3
-    
-    try:
-        files_in_project_list = []
-        if not hasattr(project, 'objects') or project.objects is None:
-            markdown_content.append("> 找不到 `project.objects` 屬性或其為 None。\n")
-        else:
-            xcode_analyzer_logger.debug(f"DEBUG: Iterating through project.objects (type: {type(project.objects)})")
-            retrieved_files = project.objects.get_objects_in_section('PBXFileReference')
-            
-            if retrieved_files is None:
-                xcode_analyzer_logger.debug(f"DEBUG: project.objects.get_objects_in_section('PBXFileReference') returned None")
-                markdown_content.append("> `project.objects.get_objects_in_section('PBXFileReference')` 回傳 None。\n")
-            elif not hasattr(retrieved_files, '__iter__'):
-                xcode_analyzer_logger.debug(f"DEBUG: project.objects.get_objects_in_section('PBXFileReference') did not return an iterable.")
-                markdown_content.append(f"> `project.objects.get_objects_in_section('PBXFileReference')` 未回傳可迭代物件 (type: {type(retrieved_files)}).\n")
-            else:
-                for file_obj in retrieved_files:
-                    path_attr = getattr(file_obj, 'path', None)
-                    if path_attr:
-                        file_name_from_path = os.path.basename(str(path_attr))
-                        explicit_name_attr = getattr(file_obj, 'name', None)
-                        display_name = explicit_name_attr if explicit_name_attr else file_name_from_path
-                        isa_attr = getattr(file_obj, 'isa', 'PBXFileReference')
-                        files_in_project_list.append(f"- `{xcode_escape_markdown(str(path_attr))}` (Type: {xcode_escape_markdown(str(isa_attr))}, Name: {xcode_escape_markdown(str(display_name or 'N/A'))})")
-            
-            if files_in_project_list:
-                markdown_content.append("\n".join(files_in_project_list[:30]))
-                if len(files_in_project_list) > 30:
-                    markdown_content.append("\n- ... (還有更多)")
-            elif not (markdown_content[-1].startswith("> `project.objects.get_objects_in_section") and ("回傳 None" in markdown_content[-1] or "未回傳可迭代物件" in markdown_content[-1])):
-                markdown_content.append("> 專案中未找到檔案參照 (PBXFileReference)。\n")
-                
-    except AttributeError as e_attr:
-        xcode_analyzer_logger.debug(f"DEBUG: AttributeError during file listing: {e_attr}")
-        markdown_content.append(f"> 存取專案物件以列出檔案時發生錯誤: {xcode_escape_markdown(str(e_attr))}.\n")
-    except Exception as e_files:
-        xcode_analyzer_logger.debug(f"DEBUG: Error during file listing: {e_files}")
-        markdown_content.append(f"> 無法從專案物件列出檔案: {xcode_escape_markdown(str(e_files))}\n")
-    markdown_content.append("\n")
-
-    return "\n".join(markdown_content)
-# --- END OF XCODE SETTINGS ANALYSIS FUNCTIONS ---
-
 
 # --- 1. Generic Helper Functions ---
 
@@ -715,6 +338,457 @@ def generate_directory_tree(project_root_path, max_depth, indent_char, current_e
     tree_lines.append("```\n")
     return "\n".join(tree_lines)
 
+
+# --- 0. CONFIGURATION LOADING ---
+def interactive_config_setup():
+    """引導使用者建立初始設定檔的互動流程。"""
+    print("\n--- 歡迎使用 Project Snapshot Tool ---")
+    print(f"尚未偵測到設定檔 ({CONFIG_FILE_PATH.name})。")
+    print("我們可以立即為您初始化一個專案設定，以便馬上開始使用。")
+    
+    try:
+        confirm = input("是否立即新增專案設定？(Y/n): ").strip().lower()
+    except EOFError:
+        confirm = 'n'
+
+    if confirm == 'n':
+        return None
+
+    while True: # Main setup loop
+        projects = {}
+        
+        while True: # Project adding loop
+            print("\n--- 新增專案 ---")
+            name = input("請輸入專案名稱 (例如 MyAwesomeApp): ").strip()
+            if not name:
+                print("專案名稱不能為空。")
+                continue
+                
+            android_path = scan_and_select_project('android')
+            
+            # 嘗試智慧預測 iOS 路徑
+            ios_prediction = predict_related_path(android_path, 'ios')
+            ios_path = None
+            
+            if ios_prediction:
+                print(f"\n🔍 偵測到可能的 iOS 專案路徑: {ios_prediction}")
+                while True:
+                    confirm_pred = input("  是否直接使用？ (Y/n): ").strip().lower()
+                    if confirm_pred == '' or confirm_pred == 'y':
+                        ios_path = ios_prediction
+                        print("  ✅ 已套用預測路徑")
+                        break
+                    elif confirm_pred == 'n':
+                        break
+                    else:
+                        print("  [錯誤] 請輸入 'y' 或 'n' (直接按 Enter 預設為 Yes)")
+            
+            if not ios_path:
+                ios_path = scan_and_select_project('ios')
+
+            projects[name] = {
+                "name": name,
+                "android_path": android_path,
+                "ios_path": ios_path
+            }
+
+            print(f"\n✅ 已暫存專案 '{name}':")
+            print(f"  - Android: {android_path}")
+            print(f"  - iOS:     {ios_path if ios_path else '(未設定)'}")
+            
+            while True:
+                more = input("\n是否要新增另一個專案？(y/N): ").strip().lower()
+                if more == '' or more == 'n':
+                    more = 'n'
+                    break
+                elif more == 'y':
+                    break
+                else:
+                    print("  [錯誤] 請輸入 'y' 或 'n' (直接按 Enter 預設為 No)")
+            
+            if more != 'y':
+                break
+
+        default_output = os.path.join(pathlib.Path.home(), "Documents", "snapshot_reports")
+        
+        while True:
+            print(f"\n請設定報告輸出目錄 [預設: {default_output}]")
+            print("  [Enter] 使用預設值")
+            print("  [O] 開啟 Finder 視窗選擇")
+            print("  [文字] 直接輸入路徑")
+            
+            output_choice = input("請選擇: ").strip()
+            
+            output_dir = None
+            
+            if not output_choice:
+                output_dir = default_output
+            elif output_choice.lower() == 'o':
+                selected = select_folder_via_finder("選擇報告輸出目錄")
+                if selected:
+                    output_dir = selected
+                else:
+                    print("  (已取消選擇，請重新輸入)")
+                    continue
+            else:
+                output_dir = output_choice
+                
+            # Verify and finalize path
+            expanded_path = os.path.expanduser(output_dir)
+            try:
+                p = pathlib.Path(expanded_path)
+                output_dir = str(p.resolve())
+                print(f"將使用輸出目錄: {output_dir}")
+                break
+            except Exception as e:
+                print(f"路徑無效，請重新輸入: {e}")
+
+        # Final Review
+        print("\n" + "="*40)
+        print("📋 設定總覽 (Configuration Review)")
+        print("="*40)
+        print(f"輸出目錄: {output_dir}\n")
+        print("專案列表:")
+        for p_name, p_data in projects.items():
+            print(f"  • {p_name}")
+            print(f"    ├─ Android: {p_data['android_path']}")
+            print(f"    └─ iOS:     {p_data['ios_path'] if p_data['ios_path'] else '(無)'}")
+        print("="*40)
+
+        while True:
+            final_confirm = input("\n確認儲存上述設定？ (Y/n) [n=重新設定]: ").strip().lower()
+            if final_confirm == '' or final_confirm == 'y':
+                config_data = {
+                    "projects": projects,
+                    "output_base_dir": output_dir
+                }
+                # Save to config.json
+                try:
+                    with open(CONFIG_FILE_PATH, 'w', encoding='utf-8') as f:
+                        json.dump(config_data, f, indent=4, ensure_ascii=False)
+                    print(f"\n✅ 設定已成功儲存至: {CONFIG_FILE_PATH.resolve()}")
+                    print("-" * 40 + "\n")
+                    return config_data
+                except Exception as e:
+                    print(f"儲存設定檔時發生錯誤: {e}")
+                    return None
+            elif final_confirm == 'n':
+                print("\n🔄 重新開始設定流程...\n")
+                break # Breaks the inner validation loop, continues the outer Main setup loop
+            else:
+                print("  [錯誤] 請輸入 'y' 或 'n' (直接按 Enter 預設為 Yes)")
+        
+        if final_confirm == '' or final_confirm == 'y':
+            break # Break the outer loop if saved successfully
+
+def load_config():
+    default_config = {
+        "projects": {},
+        "output_base_dir": str(pathlib.Path.home() / "Documents" / "snapshot_reports")
+    }
+
+    if not CONFIG_FILE_PATH.exists():
+        # 嘗試互動式設定
+        new_config = interactive_config_setup()
+        if new_config:
+            return new_config
+            
+        print(f"Warning: {CONFIG_FILE_PATH.name} not found at {CONFIG_FILE_PATH}. Using defaults. Please copy config.example.json to config.json.")
+        return default_config
+
+    try:
+        with open(CONFIG_FILE_PATH, 'r', encoding='utf-8') as f:
+            user_config = json.load(f)
+            return user_config
+    except Exception as e:
+        print(f"Error loading {CONFIG_FILE_PATH.name}: {e}")
+        return default_config
+
+CONFIG = load_config()
+PROJECT_CONFIGS = CONFIG.get("projects", {})
+try:
+    OUTPUT_BASE_DIR = pathlib.Path(os.path.expanduser(CONFIG.get("output_base_dir", "~/Documents/snapshot_reports")))
+except Exception:
+     OUTPUT_BASE_DIR = pathlib.Path.home() / "Documents" / "snapshot_reports"
+
+TREE_MAX_DEPTH = CONFIG.get("tree_max_depth", 20)
+TREE_INDENT_CHAR = CONFIG.get("tree_indent_char", "    ")
+
+# --- Android Specific Settings (adapted from your original script) ---
+ANDROID_EXCLUDES = [
+    '.gradle/', 'build/', '.idea/', '*.iml', 'local.properties',
+    '.DS_Store', 'snapshot.py', 'snapshot.md', 'captures/',
+    'release/', '*.keystore', '*.jks', '.git/',
+    # Add any other Android-specific excludes
+]
+ANDROID_PARSE_XML_RESOURCES_DETAILS = False
+ANDROID_RE_CLASS_INTERFACE = re.compile(r"^\s*(?:public|protected|private|static|\s)*\s*(class|interface)\s+([A-Za-z_][A-Za-z0-9_<>,\]]*)(?:\s+extends\s+[A-Za-z0-9_<>,\]]+)?(?:\s+implements\s+[A-Za-z0-9_<>,\]]+)?\s*\{")
+ANDROID_RE_METHOD = re.compile(r"^\s*(?:@[\w\.]+\s*)*(?:public|protected)\s+(?:static\s+|final\s+|<[\w\s,]+>\s*)*([\w\.<>\[\]]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:throws\s+[\w\.,\s]+)?\s*\{?", re.MULTILINE)
+ANDROID_RE_SINGLE_LINE_COMMENT = re.compile(r"^\s*//\s*(.*)")
+ANDROID_RE_JAVADOC_START = re.compile(r"^\s*/\*\*\s*(.*)")
+ANDROID_RE_JAVADOC_END = re.compile(r"\s*\*/")
+ANDROID_RE_MANIFEST_PERMISSION = re.compile(r'<uses-permission\s+android:name="([^"]+)"\s*/>')
+ANDROID_RE_MANIFEST_APPLICATION_NAME = re.compile(r'<application[^>]*android:name="([^"]+)"')
+ANDROID_RE_MANIFEST_COMPONENT = re.compile(r'<(activity|service|receiver)\s+[^>]*android:name="([^"]+)"')
+ANDROID_RE_XML_ID = re.compile(r'android:id="@\+id/([^"]+)"')
+ANDROID_RE_XML_STRING_NAME = re.compile(r'<string\s+name="([^"]+)"[^>]*>')
+ANDROID_RE_GRADLE_DEPENDENCY = re.compile(r"^\s*(implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)\s*(?:\(|\s)\"([^\"]+)\"", re.MULTILINE)
+ANDROID_RE_GRADLE_DEPENDENCY_LIBS = re.compile(r"^\s*(implementation|api|compileOnly|runtimeOnly|testImplementation|androidTestImplementation|debugImplementation|releaseImplementation)\s*\(\s*libs\.([\w\.-]+)\s*\)", re.MULTILINE)
+ANDROID_RE_SETTINGS_GRADLE_ROOT_NAME = re.compile(r"^\s*rootProject\.name\s*=\s*\"([^\"]+)\"", re.MULTILINE)
+ANDROID_RE_SETTINGS_GRADLE_INCLUDE = re.compile(r"^\s*include\s*\"\":(.*?)\"\"", re.MULTILINE)
+
+ANDROID_RE_KOTLIN_CLASS = re.compile(r"^\s*(?:[a-z]+\s+)*(class|interface|object|enum class|sealed class|data class)\s+([A-Za-z_][A-Za-z0-9_]*)(?:.*)?\{?", re.MULTILINE)
+# Match function declarations including extension functions (fun Type.functionName)
+ANDROID_RE_KOTLIN_FUNCTION = re.compile(r"^\s*(?:@[\w\.]+\s+)*(?:[a-z]+\s+)*fun\s+(?:[A-Za-z_][A-Za-z0-9_<>\[\]\?]*\.)?([A-Za-z_][A-Za-z0-9_`]*)\s*\(", re.MULTILINE)
+ANDROID_RE_KOTLIN_PROPERTY = re.compile(r"^\s*(?:[a-z]+\s+)*(val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z0-9_<>\[\]\?]+)?\s*=", re.MULTILINE)
+
+
+
+# --- iOS Specific Settings ---
+IOS_EXCLUDES = [
+    ".DS_Store", "snapshot.py", "snapshot.md", # General self-ignores
+    ".git/", "Pods/", "Carthage/", "build/", "DerivedData/",
+    "*.xcodeproj/project.xcworkspace/", "*.xcodeproj/xcuserdata/",
+    "*.xcworkspace/xcuserdata/", "*.xcassets/*/.json", # Exclude json inside asset catalogs
+    "xcuserdata/", ".swiftpm/",
+    "xcode_analyzer_logs/", # Exclude the log directory created by this script
+    # Add any other iOS-specific excludes
+]
+# Updated Regex for Swift Types:
+# 1. Supports optional modifiers (public, private, open, final, indirect, etc.)
+# 2. Captures the keyword (class, struct, enum, protocol, extension, actor)
+# 3. Captures the name greedily using a character class allowed in identifiers (including generics <>, dots ., etc.)
+#    It stops when it hits a space (usually before :) or a char not in the class.
+IOS_RE_SWIFT_TYPE = re.compile(r"^\s*(?:(?:public|internal|fileprivate|private|open|final|indirect)\s+)*(class|struct|enum|protocol|extension|actor)\s+([A-Za-z0-9_<>,\.\[\]]+)", re.MULTILINE)
+
+IOS_RE_SWIFT_FUNC = re.compile(r"^\s*(?:@[\w\.]+\s*)*(?:(?:public|internal|fileprivate|private)\s+)?(?:(?:static|class)\s+)?(?:mutating\s+|nonmutating\s+)?\s*func\s+([`A-Za-z_][A-Za-z0-9_`<>\?\[\]!\.\(\)]*)\s*\(([^)]*)\)\s*(?:(?:async\s+)?(?:re)?throws\s+)?(?:->\s*[\w\.<>\[\]\?!\[\]\(\)]+)?\s*\{?", re.MULTILINE)
+IOS_RE_SWIFT_SINGLE_LINE_COMMENT = re.compile(r"^\s*//\s*(.*)")
+IOS_RE_SWIFT_DOC_COMMENT = re.compile(r"^\s*///\s*(.*)")
+IOS_RE_SWIFT_MULTILINE_START = re.compile(r"^\s*/\*(?!\*).*", re.MULTILINE) # Avoid matching /** (doc comments handled by javadoc like regex)
+IOS_RE_SWIFT_MULTILINE_DOC_START = re.compile(r"^\s*/\*\*\s*(.*)", re.MULTILINE)
+IOS_RE_SWIFT_MULTILINE_END = re.compile(r".*\*/\s*$", re.MULTILINE)
+IOS_RE_PODFILE_POD = re.compile(r"^\s*pod\s+\"([^\"]+)\"(?:,\s*\"[^\"]+\")?", re.MULTILINE) # Basic pod name
+IOS_RE_PODFILE_LOCK_POD = re.compile(r"^\s*-\s+([A-Za-z0-9_/\-]+)\s+\([\w\.-]+\)", re.MULTILINE)
+IOS_RE_SPM_PACKAGE_URL = re.compile(r"\.package\s*\(\s*(?:name:\s*\"([^\"]+)\"\s*,)?\s*url:\s*\"([^\"]+)\"", re.MULTILINE)
+IOS_RE_SPM_PACKAGE_PATH = re.compile(r"\.package\s*\(\s*(?:name:\s*\"([^\"]+)\"\s*,)?\s*path:\s*\"([^\"]+)\"", re.MULTILINE)
+
+
+# --- XCODE SETTINGS ANALYSIS FUNCTIONS (from analyze_xcode_settings.py) ---
+def xcode_escape_markdown(text):
+    """逸脫 Markdown 特殊字元，特別是針對表格內的內容。"""
+    if not isinstance(text, str):
+        text = str(text)
+    # 逸脫反引號和豎線，因為它們在表格中和程式碼塊中有特殊意義
+    text = text.replace('`', '\\`').replace('|', '\\|')
+    return text
+
+def xcode_format_settings_to_markdown_table(settings_dict, title="Build Settings"):
+    """
+    將建構設定字典格式化為 Markdown 表格。
+    """
+    xcode_analyzer_logger.debug(f"DEBUG: xcode_format_settings_to_markdown_table called for '{title}'")
+    xcode_analyzer_logger.debug(f"DEBUG: Type of settings_dict: {type(settings_dict)}")
+
+    is_empty = False
+    actual_settings_items = {} # 用來儲存實際的建構設定
+
+    if settings_dict and hasattr(settings_dict, '__dict__'):
+        xcode_analyzer_logger.debug(f"DEBUG: Accessing settings_dict.__dict__ for '{title}'")
+        for key, value in settings_dict.__dict__.items():
+            if key != '_parent': # 過濾掉內部使用的 _parent 屬性
+                actual_settings_items[key] = value
+                
+    if not actual_settings_items: # 如果過濾後為空
+        if settings_dict is not None and hasattr(settings_dict, '__dict__') and len(settings_dict.__dict__) <= 1 and not actual_settings_items:
+            return f"> __{title}:__ 此設定檔無定義特定設定 (空白或僅包含內部屬性)。\n\n"
+        return f"> __{title}:__ 此設定檔無定義特定設定。\n\n"
+
+    md_output = [f"> __{title}:__\n"]
+    md_output.append("| 設定鍵值 (Setting Key) | 值 (Value) |")
+    md_output.append("|-------------|-------|")
+
+    try:
+        sorted_keys = sorted(actual_settings_items.keys())
+    except TypeError as e_sort:
+        xcode_analyzer_logger.debug(f"DEBUG: Error during key sorting for '{title}' from actual_settings_items: {e_sort}")
+        md_output.append(f"| 錯誤: 無法排序 {title} 的設定 (詳細資訊: {xcode_escape_markdown(str(e_sort))}) |  |")
+        md_output.append("\n")
+        return "\n".join(md_output)
+
+    if not sorted_keys and not is_empty:
+         return f"> __{title}:__ 找到設定物件，但在過濾後似乎為空。\n\n"
+
+    for key in sorted_keys:
+        value = actual_settings_items[key]
+        
+        if isinstance(value, (list, tuple)):
+            value_str = ", ".join(map(str, value))
+        else:
+            value_str = str(value)
+        
+        escaped_key = f"`{xcode_escape_markdown(str(key))}`"
+        escaped_value = f"`{xcode_escape_markdown(value_str)}`"
+        md_output.append(f"| {escaped_key} | {escaped_value} |")
+    md_output.append("\n")
+    return "\n".join(md_output)
+
+def generate_xcode_settings_report_markdown(project_ios_root_path_str):
+    """
+    分析指定的 Xcode 專案路徑 (iOS project root)，提取建構設定並生成 Markdown 報告 string.
+    """
+    markdown_content = ["\n## Xcode 專案建構設定分析\n"] # Added newline for better spacing
+    
+    project_ios_root_path = pathlib.Path(project_ios_root_path_str)
+    xcodeproj_dirs = list(project_ios_root_path.glob("*.xcodeproj"))
+
+    if not xcodeproj_dirs:
+        err_msg = f"No .xcodeproj directory found in `{project_ios_root_path_str}`"
+        xcode_analyzer_logger.error(f"Error: {err_msg}") # Use the logger
+        markdown_content.append(f"錯誤: 在 `{project_ios_root_path_str}` 找不到 .xcodeproj 目錄\n")
+        return "\n".join(markdown_content)
+
+    # Use the first .xcodeproj found (typically there's one at the root of an iOS project)
+    xcodeproj_path_obj = xcodeproj_dirs[0]
+    pbxproj_path_obj = xcodeproj_path_obj / "project.pbxproj"
+    
+    if not pbxproj_path_obj.exists():
+        err_msg = f"Could not find project.pbxproj in `{xcodeproj_path_obj}`"
+        xcode_analyzer_logger.error(f"Error: {err_msg}")
+        markdown_content.append(f"錯誤: 在 `{xcodeproj_path_obj}` 找不到 project.pbxproj\n")
+        return "\n".join(markdown_content)
+
+    markdown_content.append(f"分析目標：`{pbxproj_path_obj.resolve()}`\n")
+
+    try:
+        # XcodeProject.load expects a string path
+        project = XcodeProject.load(str(pbxproj_path_obj))
+    except Exception as e:
+        err_msg = f"Error loading project file {pbxproj_path_obj}: {e}"
+        xcode_analyzer_logger.error(err_msg) # Use the logger
+        markdown_content.append(f"載入專案檔 `{pbxproj_path_obj}` 時發生錯誤：{e}\n")
+        return "\n".join(markdown_content)
+
+    # --- 1. 專案級別 (Project-Level) 建構設定 ---
+    markdown_content.append("### 1. 專案層級 (Project-Level) 建構設定\n") # Changed to H3 for better nesting
+    markdown_content.append("> 這些設定套用於整個專案，並可能被個別 Target 繼承或覆寫。\n")
+
+    project_object = project.get_object(project.rootObject)
+    if project_object and hasattr(project_object, 'buildConfigurationList'):
+        config_list_id = project_object.buildConfigurationList
+        config_list = project.get_object(config_list_id)
+        
+        if config_list and hasattr(config_list, 'buildConfigurations') and config_list.buildConfigurations:
+            for config_id in config_list.buildConfigurations:
+                config = project.get_object(config_id)
+                if not config:
+                    markdown_content.append(f"> 警告：無法取得 ID 為 '{config_id}' 的專案層級設定物件。\n")
+                    continue
+                config_name = getattr(config, 'name', 'Unknown Configuration')
+                markdown_content.append(f"#### 配置 (Configuration): {config_name}\n") # Changed to H4
+                build_settings = getattr(config, 'buildSettings', None)
+                markdown_content.append(xcode_format_settings_to_markdown_table(build_settings, title=f"{config_name} 設定"))
+        else:
+            markdown_content.append("> 未在專案層級找到建構設定 (或列表為空/格式錯誤)。\n\n")
+    else:
+        markdown_content.append("> 無法取得專案層級的建構設定 (根物件或其 buildConfigurationList 遺失/無效)。\n\n")
+
+    # --- 2. Target 級別 (Target-Level) 建構設定 ---
+    markdown_content.append("### 2. 目標層級 (Target-Level) 建構設定\n") # Changed to H3
+    markdown_content.append("> 這些設定專屬於個別 Target，並會覆寫專案層級的設定。\n")
+
+    project_targets = []
+    try:
+        retrieved_targets = project.get_targets()
+        if retrieved_targets:
+            project_targets = retrieved_targets
+    except AttributeError:
+        try:
+            if hasattr(project, 'objects') and hasattr(project.objects, 'get_targets'):
+                retrieved_targets_fallback = project.objects.get_targets()
+                if retrieved_targets_fallback:
+                    project_targets = retrieved_targets_fallback
+        except Exception as e_fallback:
+            xcode_analyzer_logger.debug(f"DEBUG: Error during fallback target retrieval: {e_fallback}") 
+    except Exception as e_get_targets:
+        xcode_analyzer_logger.debug(f"DEBUG: An unexpected error occurred while calling `project.get_targets()`: {e_get_targets}")
+
+    if not project_targets:
+        markdown_content.append("> 專案中未找到 Targets，或讀取時發生錯誤。\n")
+        # Optionally add more detailed error from above if needed
+        markdown_content.append("\n")
+    else:
+        for target in project_targets:
+            target_name = getattr(target, 'name', 'Unknown Target')
+            product_type = getattr(target, 'productType', 'Unknown Type')
+            markdown_content.append(f"#### 目標 (Target): {target_name} (產品類型: `{product_type}`)\n") # Changed to H4
+            
+            build_config_list_id = getattr(target, 'buildConfigurationList', None)
+            if build_config_list_id:
+                config_list = project.get_object(build_config_list_id)
+                if config_list and hasattr(config_list, 'buildConfigurations') and config_list.buildConfigurations:
+                    for config_id in config_list.buildConfigurations:
+                        config = project.get_object(config_id)
+                        if not config:
+                            markdown_content.append(f"> 警告：無法取得 Target '{target_name}' 中 ID 為 '{config_id}' 的設定物件。\n")
+                            continue
+                        config_name = getattr(config, 'name', 'Unknown Configuration')
+                        markdown_content.append(f"##### 配置 (Configuration): {config_name} (目標: {target_name})\n") # Changed to H5
+                        build_settings = getattr(config, 'buildSettings', None)
+                        markdown_content.append(xcode_format_settings_to_markdown_table(build_settings, title=f"{target_name} 的 {config_name} 設定"))
+                else:
+                    # ... (simplified warning message generation for brevity)
+                    markdown_content.append(f"> Target '{target_name}' 未找到建構設定。\n\n")
+            else:
+                markdown_content.append(f"> Target '{target_name}' 沒有 'buildConfigurationList' ID 或其無效/為空。\n\n")
+            
+    # --- 3. (可選) 其他 Project.pbxproj 資訊 ---
+    markdown_content.append("### 3. 其他專案資訊 (檔案參照 - File References)\n") # Changed to H3
+    
+    try:
+        files_in_project_list = []
+        if not hasattr(project, 'objects') or project.objects is None:
+            markdown_content.append("> 找不到 `project.objects` 屬性或其為 None。\n")
+        else:
+            xcode_analyzer_logger.debug(f"DEBUG: Iterating through project.objects (type: {type(project.objects)})")
+            retrieved_files = project.objects.get_objects_in_section('PBXFileReference')
+            
+            if retrieved_files is None:
+                xcode_analyzer_logger.debug(f"DEBUG: project.objects.get_objects_in_section('PBXFileReference') returned None")
+                markdown_content.append("> `project.objects.get_objects_in_section('PBXFileReference')` 回傳 None。\n")
+            elif not hasattr(retrieved_files, '__iter__'):
+                xcode_analyzer_logger.debug(f"DEBUG: project.objects.get_objects_in_section('PBXFileReference') did not return an iterable.")
+                markdown_content.append(f"> `project.objects.get_objects_in_section('PBXFileReference')` 未回傳可迭代物件 (type: {type(retrieved_files)}).\n")
+            else:
+                for file_obj in retrieved_files:
+                    path_attr = getattr(file_obj, 'path', None)
+                    if path_attr:
+                        file_name_from_path = os.path.basename(str(path_attr))
+                        explicit_name_attr = getattr(file_obj, 'name', None)
+                        display_name = explicit_name_attr if explicit_name_attr else file_name_from_path
+                        isa_attr = getattr(file_obj, 'isa', 'PBXFileReference')
+                        files_in_project_list.append(f"- `{xcode_escape_markdown(str(path_attr))}` (Type: {xcode_escape_markdown(str(isa_attr))}, Name: {xcode_escape_markdown(str(display_name or 'N/A'))})")
+            
+            if files_in_project_list:
+                markdown_content.append("\n".join(files_in_project_list[:30]))
+                if len(files_in_project_list) > 30:
+                    markdown_content.append("\n- ... (還有更多)")
+            elif not (markdown_content[-1].startswith("> `project.objects.get_objects_in_section") and ("回傳 None" in markdown_content[-1] or "未回傳可迭代物件" in markdown_content[-1])):
+                markdown_content.append("> 專案中未找到檔案參照 (PBXFileReference)。\n")
+                
+    except AttributeError as e_attr:
+        xcode_analyzer_logger.debug(f"DEBUG: AttributeError during file listing: {e_attr}")
+        markdown_content.append(f"> 存取專案物件以列出檔案時發生錯誤: {xcode_escape_markdown(str(e_attr))}.\n")
+    except Exception as e_files:
+        xcode_analyzer_logger.debug(f"DEBUG: Error during file listing: {e_files}")
+        markdown_content.append(f"> 無法從專案物件列出檔案: {xcode_escape_markdown(str(e_files))}\n")
+    markdown_content.append("\n")
+
+    return "\n".join(markdown_content)
+# --- END OF XCODE SETTINGS ANALYSIS FUNCTIONS ---
+
+
+
+
 # --- 2. Android Snapshot Logic (Adapted from your original script) ---
 
 def android_parse_code_file(file_path):
@@ -999,7 +1073,7 @@ def snapshot_android_project(project_path_str, project_display_name, output_dir_
     markdown_parts = []
     
     print("  正在產生目錄結構...")
-    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "Android Project"))
+    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "Android 專案"))
 
     code_summary = ["## 主要 Java/Groovy/Kotlin 類別與方法"]
     xml_summary = ["## XML 資源摘要"]
@@ -1388,7 +1462,7 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
     markdown_parts = []
 
     print("  正在產生目錄結構...")
-    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "iOS Project"))
+    markdown_parts.append(generate_directory_tree(project_root, TREE_MAX_DEPTH, TREE_INDENT_CHAR, active_excludes, "iOS 專案"))
 
     swift_summary = ["## 主要 Swift 類型與函式"]
     plist_content_md = "" # Changed name to avoid conflict
@@ -1437,7 +1511,7 @@ def snapshot_ios_project(project_path_str, project_display_name, output_dir_path
     print("  正在解析相依性檔案...")
     markdown_parts.append(ios_parse_dependency_files(project_root))
     
-    markdown_parts.append("## 其他 iOS 檔案 (Other iOS Artifacts)\n_可在此處新增針對 Storyboards, XIBs, Asset Catalogs 的進一步分析。_\n")
+    markdown_parts.append("## 其他 iOS 檔案\n_可在此處新增針對 Storyboards, XIBs, Asset Catalogs 的進一步分析。_\n")
 
     output_filename = f"{project_display_name.replace(' ', '_')}_iOS_Snapshot.md"
     output_path = output_dir_path / output_filename
@@ -1485,7 +1559,7 @@ def manage_projects():
             if name in projects:
                 print(f"專案 '{name}' 已存在。")
                 continue
-                
+            
             android_path = scan_and_select_project('android')
             
             # 嘗試智慧預測 iOS 路徑
@@ -1576,10 +1650,10 @@ def get_user_choices():
         current_projects = CONFIG.get("projects", {})
         project_options = list(current_projects.keys())
         
-        print("\n=== Snapshot Tool 主選單 ===")
+        print("\n=== Snapshot 工具主選單 ===")
         
         if not project_options:
-             print("目前無專案 (No projects available)")
+             print("目前無專案")
              print("請輸入 'M' 進入管理模式新增專案。")
         else:
             print("[執行特定專案] (輸入數字):")
@@ -1618,10 +1692,10 @@ def get_user_choices():
                 continue
 
         # Platform Selection (Only happens if a project was selected)
-        print("\n可用平台 (Available Platforms):")
+        print("\n可用平台:")
         print("  1. Android")
         print("  2. iOS")
-        print("  3. 雙平台 (Both)")
+        print("  3. 雙平台 (Android + iOS)")
 
         while True:
             try:
@@ -1647,47 +1721,62 @@ def get_user_choices():
 
 def main():
     """Main execution function."""
-    # check = True logic removed or moved inside loop as it was static check based on initial load
     
-    selected_project_keys, selected_platforms = get_user_choices()
-    
-    # Reload project configs in case they were changed in the menu
-    current_project_configs = CONFIG.get("projects", {})
+    # Ensure output directory exists
+    try:
+        OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"警告：無法建立輸出目錄 {OUTPUT_BASE_DIR}: {e}")
 
-    OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"\n報告將儲存至：{OUTPUT_BASE_DIR}")
+    while True:
+        selected_project_keys, selected_platforms = get_user_choices()
+        
+        # Reload project configs in case they were changed in the menu
+        current_project_configs = CONFIG.get("projects", {})
+        
+        # Re-verify output dir existence in case config changed (though OUTPUT_BASE_DIR global is static loaded currently, 
+        # but good practice if we refactor later)
+        if not OUTPUT_BASE_DIR.exists():
+             OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
-    for project_key in selected_project_keys:
-        project_config = current_project_configs.get(project_key)
-        if not project_config:
-             print(f"錯誤：找不到專案設定 '{project_key}'")
-             continue
-             
-        project_display_name = project_config.get("name", project_key)
+        print(f"\n報告將儲存至：{OUTPUT_BASE_DIR}")
 
-        if "android" in selected_platforms:
-            android_path_str = project_config.get("android_path")
-            if android_path_str and android_path_str != "/path/to/your/...": 
-                 android_path_str = os.path.expanduser(android_path_str) 
-                 if os.path.isdir(android_path_str):
-                    snapshot_android_project(android_path_str, project_display_name, OUTPUT_BASE_DIR)
-                 else:
-                    print(f"略過 {project_display_name} 的 Android 部分：路徑 '{android_path_str}' 不是一個有效的目錄。")
-            else:
-                print(f"略過 {project_display_name} 的 Android 部分：路徑未設定。")
+        for project_key in selected_project_keys:
+            project_config = current_project_configs.get(project_key)
+            if not project_config:
+                 print(f"錯誤：找不到專案設定 '{project_key}'")
+                 continue
+                 
+            project_display_name = project_config.get("name", project_key)
 
-        if "ios" in selected_platforms:
-            ios_path_str = project_config.get("ios_path")
-            if ios_path_str and ios_path_str != "/path/to/your/...": 
-                ios_path_str = os.path.expanduser(ios_path_str) 
-                if os.path.isdir(ios_path_str):
-                    snapshot_ios_project(ios_path_str, project_display_name, OUTPUT_BASE_DIR)
+            if "android" in selected_platforms:
+                android_path_str = project_config.get("android_path")
+                if android_path_str and android_path_str != "/path/to/your/...": 
+                     android_path_str = os.path.expanduser(android_path_str) 
+                     if os.path.isdir(android_path_str):
+                        snapshot_android_project(android_path_str, project_display_name, OUTPUT_BASE_DIR)
+                     else:
+                        print(f"略過 {project_display_name} 的 Android 部分：路徑 '{android_path_str}' 不是一個有效的目錄。")
                 else:
-                    print(f"略過 {project_display_name} 的 iOS 部分：路徑 '{ios_path_str}' 不是一個有效的目錄。")
-            else:
-                print(f"略過 {project_display_name} 的 iOS 部分：路徑未設定。")
-    
-    print("\n--- 已完成所有選定的快照報告。 ---")
+                    print(f"略過 {project_display_name} 的 Android 部分：路徑未設定。")
+
+            if "ios" in selected_platforms:
+                ios_path_str = project_config.get("ios_path")
+                if ios_path_str and ios_path_str != "/path/to/your/...": 
+                    ios_path_str = os.path.expanduser(ios_path_str) 
+                    if os.path.isdir(ios_path_str):
+                        snapshot_ios_project(ios_path_str, project_display_name, OUTPUT_BASE_DIR)
+                    else:
+                        print(f"略過 {project_display_name} 的 iOS 部分：路徑 '{ios_path_str}' 不是一個有效的目錄。")
+                else:
+                    print(f"略過 {project_display_name} 的 iOS 部分：路徑未設定。")
+        
+        print("\n--- 已完成所有選定的快照報告。 ---")
+        
+        cont = input("\n是否要執行其他操作？ (Y/n) [預設 Y]: ").strip().lower()
+        if cont == 'n':
+            print("再見！")
+            break
 
 if __name__ == "__main__":
     main()

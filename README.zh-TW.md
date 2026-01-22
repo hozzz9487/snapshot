@@ -48,14 +48,6 @@
     git clone https://github.com/hozzz9487/snapshot.git
     cd snapshot
     ```
-2.  **環境設定**:
-    ```bash
-    # 建立虛擬環境（建議）
-    python3 -m venv .
-    source bin/activate
-    # 安裝必要套件
-    pip install -r requirements.txt
-    ```
 
 ---
 
@@ -75,13 +67,25 @@
 
 您可以透過指令腳本或直接使用 Python 運行：
 
-### 方式一：使用腳本（建議）
+### 方式一：使用腳本（推薦）
+此腳本會自動建立虛擬環境 (`.venv`) 並安裝所需套件，開箱即用。
+
 ```bash
 ./script/snapshot.command
 ```
 
-### 方式二：直接運行 Python
+### 方式二：手動 Python 執行
+若您習慣手動管理環境，請依序執行：
+
 ```bash
+# 1. 建立並啟動虛擬環境
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. 安裝必要套件
+pip install -r requirements.txt
+
+# 3. 執行程式
 python3 py/snapshot.py
 ```
 
